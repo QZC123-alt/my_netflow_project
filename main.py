@@ -41,6 +41,7 @@ parser.add_argument('--file', '-o', type=str, dest='output_file',
 parser.add_argument('--debug', '-D', action='store_true',
                     help='Enable debug output')
 
+
 class SoftflowUDPHandler(socketserver.BaseRequestHandler):
     # We need to save the templates our NetFlow device
     # send over time. Templates are not resended every
@@ -79,7 +80,6 @@ class SoftflowUDPHandler(socketserver.BaseRequestHandler):
 
         with open(self.output_file, 'w') as fh:
             fh.write(json.dumps(existing_data))
-
 
 
 if __name__ == "__main__":
