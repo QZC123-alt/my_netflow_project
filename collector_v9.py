@@ -1,19 +1,14 @@
 #!/usr/bin/env python3
+# -*- coding=utf-8 -*-
+# 本脚由亁颐堂现任明教教主编写，用于乾颐盾Python课程！
+# 教主QQ:605658506
+# 亁颐堂官网www.qytang.com
+# 教主技术进化论拓展你的技术新边疆
+# https://ke.qq.com/course/271956?tuin=24199d8a
 
-"""
-Netflow V9 collector and parser implementation in Python 3.
-Created for learning purposes and unsatisfying alternatives.
-
-This script is specifically implemented in combination with softflowd.
-See https://github.com/djmdjm/softflowd
-
-Copyright 2017, 2018 Dominik Pataky <dev@bitkeks.eu>
-Licensed under MIT License. See LICENSE.
-"""
-
-import socket
 import struct
-import sys
+import os
+import sqlite3
 
 
 field_types = {
@@ -31,11 +26,11 @@ field_types = {
     7: 'L4_SRC_PORT',
     8: 'IPV4_SRC_ADDR',
     9: 'SRC_MASK',
-    10: 'INPUT_SNMP',
+    10: 'INPUT_INTERFACE_ID',
     11: 'L4_DST_PORT',
     12: 'IPV4_DST_ADDR',
     13: 'DST_MASK',
-    14: 'OUTPUT_SNMP',
+    14: 'OUTPUT_INTERFACE_ID',
     15: 'IPV4_NEXT_HOP',
     16: 'SRC_AS',
     17: 'DST_AS',
@@ -149,23 +144,64 @@ field_types = {
     # https://www.paloaltonetworks.com/documentation/80/pan-os/pan-os/monitoring/netflow-monitoring/netflow-templates
     346: 'PANOS_privateEnterpriseNumber',
     56701: 'PANOS_APPID',
-    56702: 'PANOS_USERID'
+    56702: 'PANOS_USERID',
+    # Cisco Connection_ID
+    45010: 'CONNECTION_ID'
 }
 
 
-class DataRecord:
-    """This is a 'flow' as we want it from our source. What it contains is
-    variable in NetFlow V9, so to work with the data you have to analyze the
-    data dict keys (which are integers and can be mapped with the field_types
-    dict).
+def createdb():
+    if os.path.exists('netflow.sqlite'):
+        os.remove('netflow.sqlite')
 
-    Should hold a 'data' dict with keys=field_type (integer) and value (in bytes).
-    """
-    def __init__(self):
-        self.data = {}
+    # 连接SQLite数据库
+    conn = sqlite3.connect('netflow.sqlite')
+    cursor = conn.cursor()
 
-    def __repr__(self):
-        return "<DataRecord with data: {}>".format(self.data)
+    # 执行创建表的任务
+    cursor.execute("create table netflowdb (源地址 varchar(40), 目的地址 varchar(40), 协议 int, 源端口 int, 目的端口 int, 入接口ID int, 入向字节数 int)")
+
+    conn.commit()
+
+
+def netflowdb(netflow_dict):
+    conn = sqlite3.connect('netflow.sqlite')
+    cursor = conn.cursor()
+
+    # 读取Python字典数据，并逐条写入SQLite数据库
+    cursor.execute("insert into netflowdb values ('%s', '%s', %d, %d, %d, %d, %d)" % (netflow_dict['IPV4_SRC_ADDR'],
+                                                                                              netflow_dict['IPV4_DST_ADDR'],
+                                                                                              netflow_dict['PROTOCOL'],
+                                                                                              netflow_dict['L4_SRC_PORT'],
+                                                                                              netflow_dict['L4_DST_PORT'],
+                                                                                              netflow_dict['INPUT_INTERFACE_ID'],
+                                                                                              netflow_dict['IN_BYTES']))
+    conn.commit()
+
+
+# class DataRecord:
+#     """This is a 'flow' as we want it from our source. What it contains is
+#     variable in NetFlow V9, so to work with the data you have to analyze the
+#     data dict keys (which are integers and can be mapped with the field_types
+#     dict).
+#
+#     Should hold a 'data' dict with keys=field_type (integer) and value (in bytes).
+#     """
+#     def __init__(self):
+#         self.data = {}
+#
+#     def __repr__(self):
+#         return "<DataRecord with data: {}>".format(self.data)
+
+
+class IP:
+    def __init__(self, data):
+        self.IP_LIST = []
+        self.IP_LIST.append(str(data >> 24 & 0xff))
+        self.IP_LIST.append(str(data >> 16 & 0xff))
+        self.IP_LIST.append(str(data >> 8 & 0xff))
+        self.IP_LIST.append(str(data & 0xff))
+        self.ip_addr = '.'.join(self.IP_LIST)
 
 
 class DataFlowSet:
@@ -187,7 +223,7 @@ class DataFlowSet:
         padding_size = 4 - (self.length % 4)  # 4 Byte
 
         while offset <= (self.length - padding_size):
-            new_record = DataRecord()
+            new_record = {}
 
             for field in template.fields:
                 flen = field.field_length
@@ -201,12 +237,19 @@ class DataFlowSet:
                 fdata = 0
                 for idx, byte in enumerate(reversed(bytearray(dataslice))):
                     fdata += byte << (idx * 8)
-
-                new_record.data[fkey] = fdata
+                if fkey == 'IPV4_SRC_ADDR':
+                    new_record[fkey] = IP(fdata).ip_addr
+                elif fkey == 'IPV4_DST_ADDR':
+                    new_record[fkey] = IP(fdata).ip_addr
+                else:
+                    new_record[fkey] = fdata
 
                 offset += flen
+                # print(new_record)
 
-            self.flows.append(new_record)
+            print(new_record)
+            netflowdb(new_record)
+
 
     def __repr__(self):
         return "<DataFlowSet with template {} of length {} holding {} flows>"\
@@ -258,13 +301,13 @@ class TemplateFlowSet:
             pack = struct.unpack('!HH', data[offset:offset+4])
             template_id = pack[0]
             field_count = pack[1]
-
+            # print('field_count:', field_count)
             fields = []
             for field in range(field_count):
-                # Get all fields of this template
                 offset += 4
                 field_type, field_length = struct.unpack('!HH', data[offset:offset+4])
                 if field_type not in field_types:
+                    # print(field_type)
                     field_type = 0  # Set field_type to UNKNOWN_FIELD_TYPE as fallback
                 field = TemplateField(field_type, field_length)
                 fields.append(field)
@@ -302,12 +345,16 @@ class ExportPacket:
     """
     def __init__(self, data, templates):
         self.header = Header(data)
+        # print(Header(data))
         self.templates = templates
+        # print(templates)
         self.flows = []
 
         offset = 20
+        # print(len(data))
         while offset != len(data):
             flowset_id = struct.unpack('!H', data[offset:offset+2])[0]
+            # print('flowset_id:', flowset_id)
             if flowset_id == 0:  # TemplateFlowSet always have id 0
                 tfs = TemplateFlowSet(data[offset:])
                 self.templates.update(tfs.templates)

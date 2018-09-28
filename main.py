@@ -1,21 +1,15 @@
 #!/usr/bin/env python3
-
-"""
-Example collector script for NetFlow v9.
-This file belongs to https://github.com/cooox/python-netflow-v9-softflowd.
-
-Copyright 2017, 2018 Dominik Pataky <dev@bitkeks.eu>
-Licensed under MIT License. See LICENSE.
-"""
+# -*- coding=utf-8 -*-
+# 本脚由亁颐堂现任明教教主编写，用于乾颐盾Python课程！
+# 教主QQ:605658506
+# 亁颐堂官网www.qytang.com
+# 教主技术进化论拓展你的技术新边疆
+# https://ke.qq.com/course/271956?tuin=24199d8a
 
 import logging
-import argparse
 import sys
 import socketserver
-import time
-import json
-import os.path
-
+from collector_v9 import ExportPacket, createdb
 
 logging.getLogger().setLevel(logging.INFO)
 ch = logging.StreamHandler(sys.stdout)
@@ -23,23 +17,6 @@ ch.setLevel(logging.DEBUG)
 formatter = logging.Formatter('%(message)s')
 ch.setFormatter(formatter)
 logging.getLogger().addHandler(ch)
-
-try:
-    from netflow.collector_v9 import ExportPacket
-except ImportError:
-    logging.warn("Netflow v9 not installed as package! Running from directory.")
-    from src.netflow.collector_v9 import ExportPacket
-
-parser = argparse.ArgumentParser(description='A sample netflow collector.')
-parser.add_argument('--host', type=str, default='',
-                    help='collector listening address')
-parser.add_argument('--port', '-p', type=int, default=2055,
-                    help='collector listener port')
-parser.add_argument('--file', '-o', type=str, dest='output_file',
-                    default="{}.json".format(int(time.time())),
-                    help='collector export JSON file')
-parser.add_argument('--debug', '-D', action='store_true',
-                    help='Enable debug output')
 
 
 class SoftflowUDPHandler(socketserver.BaseRequestHandler):
@@ -54,18 +31,7 @@ class SoftflowUDPHandler(socketserver.BaseRequestHandler):
         server = socketserver.UDPServer((host, port), cls)
         return server
 
-    @classmethod
-    def set_output_file(cls, path):
-        cls.output_file = path
-
     def handle(self):
-        if not os.path.exists(self.output_file):
-            with open(self.output_file, 'w') as fh:
-                fh.write(json.dumps({}))
-
-        with open(self.output_file, 'r') as fh:
-            existing_data = json.loads(fh.read())
-
         data = self.request[0]
         host = self.client_address[0]
         s = "Received data from {}, length {}".format(host, len(data))
@@ -75,20 +41,12 @@ class SoftflowUDPHandler(socketserver.BaseRequestHandler):
         s = "Processed ExportPacket with {} flows.".format(export.header.count)
         logging.debug(s)
 
-        # Append new flows
-        existing_data[time.time()] = [flow.data for flow in export.flows]
-
-        with open(self.output_file, 'w') as fh:
-            fh.write(json.dumps(existing_data))
-
 
 if __name__ == "__main__":
-    args = parser.parse_args()
-    SoftflowUDPHandler.set_output_file(args.output_file)
-    server = SoftflowUDPHandler.get_server(args.host, args.port)
+    createdb()
+    server = SoftflowUDPHandler.get_server('0.0.0.0', 9999)
 
-    if args.debug:
-        logging.getLogger().setLevel(logging.DEBUG)
+    logging.getLogger().setLevel(logging.DEBUG)
 
     try:
         logging.debug("Starting the NetFlow listener")
