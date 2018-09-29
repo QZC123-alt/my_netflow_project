@@ -36,7 +36,9 @@ class SoftflowUDPHandler(socketserver.BaseRequestHandler):
         host = self.client_address[0]
         s = "Received data from {}, length {}".format(host, len(data))
         logging.debug(s)
+        # 使用类ExportPacket处理数据,并返回实例export,这是整个处理的开始!
         export = ExportPacket(data, self.TEMPLATES)
+        # 把实例export(类ExportPacket)中的属性templates更新到类SoftflowUDPHandler的属性templates,用于保存模板数据
         self.TEMPLATES.update(export.templates)
         s = "Processed ExportPacket with {} flows.".format(export.header.count)
         logging.debug(s)

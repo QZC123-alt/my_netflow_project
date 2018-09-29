@@ -9,36 +9,45 @@
 import sqlite3
 from matplotlib import pyplot as plt
 
+# 协议名称映射表
 protocol_map = {'6/22': 'SSH',
                 '6/23': 'Telnet',
                 '17/137': 'UDP NETBIOS Name Service',
                 '17/138': 'UDP NETBIOS Datagram Service',
                 '17/5353': 'MDNS',
+                '17/53': 'DNS',
+                '6/80': 'HTTP',
+                '6/443': 'HTTPS',
                 '17/5355': 'LLMNR'}
+
+# 连接数据库
 conn = sqlite3.connect('netflow.sqlite')
 cursor = conn.cursor()
 
+# 找到唯一的目的端口和协议
 cursor.execute("select 目的端口,协议 from netflowdb group by 目的端口,协议")
 yourresults = cursor.fetchall()
 
 application_list = []
 
+# 找到出现的应用(协议,目的端口)
 for dbinfo in yourresults:
     application_list.append(dbinfo)
-
-# print(application_list)
 
 protocol_list = []
 protocol_bytes = []
 for x in application_list:
-
+    # 提取应用(协议,目的端口)的入向字节数
     cursor.execute("select 入向字节数 from netflowdb where 协议='%s' and 目的端口='%s'" % (x[1], x[0]))
     yourresults = cursor.fetchall()
     bytes_sum = 0
+    # 把每一个会话的字节数加起来
     for dbinfo in yourresults:
         bytes_sum += dbinfo[0]
     protocol_port = str(x[1]) + '/' + str(x[0])
-    protocol_list.append(protocol_map.get(protocol_port, 'unknown'))
+    # 把协议清单写入protocol_list
+    protocol_list.append(protocol_map.get(protocol_port, protocol_port))
+    # 把协议对于的字节数,写入protocol_bytes
     protocol_bytes.append(bytes_sum)
 
 print(protocol_list)

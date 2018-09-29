@@ -178,12 +178,13 @@ def netflowdb(netflow_dict):
 
     # 读取Python字典数据，并逐条写入SQLite数据库
     cursor.execute("insert into netflowdb values ('%s', '%s', %d, %d, %d, %d, %d)" % (netflow_dict['IPV4_SRC_ADDR'],
-                                                                                              netflow_dict['IPV4_DST_ADDR'],
-                                                                                              netflow_dict['PROTOCOL'],
-                                                                                              netflow_dict['L4_SRC_PORT'],
-                                                                                              netflow_dict['L4_DST_PORT'],
-                                                                                              netflow_dict['INPUT_INTERFACE_ID'],
-    # 提交数据                                                                                          netflow_dict['IN_BYTES']))
+                                                                                      netflow_dict['IPV4_DST_ADDR'],
+                                                                                      netflow_dict['PROTOCOL'],
+                                                                                      netflow_dict['L4_SRC_PORT'],
+                                                                                      netflow_dict['L4_DST_PORT'],
+                                                                                      netflow_dict['INPUT_INTERFACE_ID'],
+                                                                                      netflow_dict['IN_BYTES']))
+    # 提交数据
     conn.commit()
 
 
