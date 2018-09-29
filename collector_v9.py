@@ -225,7 +225,7 @@ class DataFlowSet:
             # 开始提取记录,初始化new_record为空字典
             new_record = {}
 
-            for field in template.fields:# 提取模板中的每一个字段
+            for field in template.fields:  # 提取模板中的每一个字段
                 # 提取字段长度
                 flen = field.field_length
                 # 提取字段类型
@@ -272,7 +272,6 @@ class DataFlowSet:
             # 把提取的内容直接写入数据库,这个代码的问题是,传统数据库灵活性有限,需要固定字段,推荐使用MongoDB
             # 由于本次试验数据源仅仅来自于一个路由器,所以并没有考虑写入模板ID的情况
             netflowdb(new_record)
-
 
     def __repr__(self): # 格式化打印类时的显示字符串
         return "<DataFlowSet with template {} of length {} holding {} flows>"\
@@ -332,7 +331,7 @@ class TemplateFlowSet:
             field_count = pack[1]
             # 初始化字段列表为空列表
             fields = []
-            for field in range(field_count):# 按照字段数量逐个分析字段内容
+            for field in range(field_count):  # 按照字段数量逐个分析字段内容
                 # 每个字段4个字节,分别为类型和长度,offset += 4,用来略过上一个字段
                 offset += 4
                 # 提取字段类型和字段长度
