@@ -59,6 +59,8 @@ field_types = {
     40: 'TOTAL_BYTES_EXP',
     41: 'TOTAL_PKTS_EXP',
     42: 'TOTAL_FLOWS_EXP',
+    # Cisco Connection_ID
+    45010: 'CONNECTION_ID',
     # 43 vendor proprietary
     44: 'IPV4_SRC_PREFIX',
     45: 'IPV4_DST_PREFIX',
@@ -137,7 +139,7 @@ field_types = {
     231: 'NF_F_FWD_FLOW_DELTA_BYTES',  # The delta number of bytes from source to destination
     232: 'NF_F_REV_FLOW_DELTA_BYTES',  # The delta number of bytes from destination to source
     33000: 'NF_F_INGRESS_ACL_ID',  # The input ACL that permitted or denied the flow
-    33001: 'NF_F_EGRESS_ACL_ID',  #  The output ACL that permitted or denied a flow
+    33001: 'NF_F_EGRESS_ACL_ID',  # The output ACL that permitted or denied a flow
     40000: 'NF_F_USERNAME',  # AAA username
 
     # PaloAlto PAN-OS 8.0
@@ -145,12 +147,14 @@ field_types = {
     346: 'PANOS_privateEnterpriseNumber',
     56701: 'PANOS_APPID',
     56702: 'PANOS_USERID',
-    # Cisco Connection_ID
-    45010: 'CONNECTION_ID'
 }
 
 
 def createdb():
+    """
+    创建数据库表,推荐未来改进为MongoDB
+    """
+    # 判断是否存在数据库,如果存在就删除
     if os.path.exists('netflow.sqlite'):
         os.remove('netflow.sqlite')
 
@@ -165,6 +169,10 @@ def createdb():
 
 
 def netflowdb(netflow_dict):
+    """
+    写入数据库,推荐未来改进为MongoDB
+    """
+    # 连接SQLite数据库
     conn = sqlite3.connect('netflow.sqlite')
     cursor = conn.cursor()
 
@@ -175,26 +183,14 @@ def netflowdb(netflow_dict):
                                                                                               netflow_dict['L4_SRC_PORT'],
                                                                                               netflow_dict['L4_DST_PORT'],
                                                                                               netflow_dict['INPUT_INTERFACE_ID'],
-                                                                                              netflow_dict['IN_BYTES']))
+    # 提交数据                                                                                          netflow_dict['IN_BYTES']))
     conn.commit()
 
 
-# class DataRecord:
-#     """This is a 'flow' as we want it from our source. What it contains is
-#     variable in NetFlow V9, so to work with the data you have to analyze the
-#     data dict keys (which are integers and can be mapped with the field_types
-#     dict).
-#
-#     Should hold a 'data' dict with keys=field_type (integer) and value (in bytes).
-#     """
-#     def __init__(self):
-#         self.data = {}
-#
-#     def __repr__(self):
-#         return "<DataRecord with data: {}>".format(self.data)
-
-
 class IP:
+    """
+    读取数据,并且转换为字符串格式的IP地址
+    """
     def __init__(self, data):
         self.IP_LIST = []
         self.IP_LIST.append(str(data >> 24 & 0xff))
@@ -283,14 +279,15 @@ class TemplateRecord:
 
 
 class TemplateFlowSet:
-    """A template flowset, which holds an id that is used by data flowsets to
-    reference back to the template. The template then has fields which hold
-    identifiers of data types (eg "IP_SRC_ADDR", "PKTS"..). This way the flow
-    sender can dynamically put together data flowsets.
+    """
+    分析Template FlowSet,分析模板,便于后续分析Data FlowSet
     """
     def __init__(self, data):
+        # 分析数据的前四个字节,分别为FlowSet ID和长度
         pack = struct.unpack('!HH', data[:4])
+        # FlowSet ID,注意ID为0时为模板
         self.flowset_id = pack[0]
+        # Template FlowSet的长度
         self.length = pack[1]  # total length including this header in bytes
         self.templates = {}
 
@@ -327,35 +324,44 @@ class TemplateFlowSet:
 
 
 class Header:
-    """The header of the ExportPacket.
+    """
+    解析Netflow的头部
     """
     def __init__(self, data):
         pack = struct.unpack('!HHIIII', data[:20])
 
-        self.version = pack[0]
-        self.count = pack[1]  # not sure if correct. softflowd: no of flows
-        self.uptime = pack[2]
-        self.timestamp = pack[3]
+        self.version = pack[0] # The version of NetFlow records exported in this packet; for Version 9, this value is 0x0009
+        self.count = pack[1]  # Number of FlowSet records (both template and data) contained within this packet
+        self.uptime = pack[2] # Number of FlowSet records (both template and data) contained within this packet
+        self.timestamp = pack[3] # Time in milliseconds since this device was first booted
+        # Incremental sequence counter of all export packets sent by this export device; this value is
+        # cumulative, and it can be used to identify whether any export packets have been missed
         self.sequence = pack[4]
+        # The Source ID field is a 32-bit value that is used to guarantee uniqueness for all flows exported from a particular device.
         self.source_id = pack[5]
 
 
 class ExportPacket:
-    """The flow record holds the header and all template and data flowsets.
+    """
+    这个类是整个解析的开头
+    最开始传入的templates为空字典{}
     """
     def __init__(self, data, templates):
+        # 解析netflow头部
         self.header = Header(data)
-        # print(Header(data))
+        # 把传入的空字典{},写入属性templates
         self.templates = templates
-        # print(templates)
-        self.flows = []
 
+        self.flows = []
+        # 偏移量调整到20,略过已经分析过的头部(netflow头部20个字节)
         offset = 20
-        # print(len(data))
+
         while offset != len(data):
+            # 提取flowset_id,它一共2两个字节
             flowset_id = struct.unpack('!H', data[offset:offset+2])[0]
-            # print('flowset_id:', flowset_id)
-            if flowset_id == 0:  # TemplateFlowSet always have id 0
+            # flowset_id == 0 非常重要,因为Template FlowSet会在这里发送,如果没有模板就没法对后续Data FlowSet进行分析
+            if flowset_id == 0:
+                # 使用类TemplateFlowSet分析数据
                 tfs = TemplateFlowSet(data[offset:])
                 self.templates.update(tfs.templates)
                 offset += tfs.length
@@ -365,5 +371,6 @@ class ExportPacket:
                 offset += dfs.length
 
     def __repr__(self):
+        # 对类的打印输出结果进行格式化,显示版本和,记录数量
         return "<ExportPacket version {} counting {} records>".format(
             self.header.version, self.header.count)
