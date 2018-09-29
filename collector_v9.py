@@ -201,78 +201,106 @@ class IP:
 
 
 class DataFlowSet:
-    """Holds one or multiple DataRecord which are all defined after the same
-    template. This template is referenced in the field 'flowset_id' of this
-    DataFlowSet and must not be zero.
+    """
+    分析DataFlowSet内的字段和值
     """
     def __init__(self, data, templates):
         pack = struct.unpack('!HH', data[:4])
-
-        self.template_id = pack[0]  # flowset_id is reference to a template_id
+        # 前四个字节分别为,FlowSet ID(需要与模板ID匹配)和DataFlowSet长度
+        self.template_id = pack[0]
         self.length = pack[1]
+        # 初始化流列表flows为空列表
         self.flows = []
 
+        # 略过已经分析的DataFlowSet头部
         offset = 4
+        # 提取传入templates中,对应的模板(通过模板ID)
         template = templates[self.template_id]
 
-        # As the field lengths are variable V9 has padding to next 32 Bit
+        # v9 DataFlowSet长度必须被4字节整除,如果不够4字节边界,需要填充数据,下面在计算填充数据长度
         padding_size = 4 - (self.length % 4)  # 4 Byte
 
         while offset <= (self.length - padding_size):
+            # 开始提取记录,初始化new_record为空字典
             new_record = {}
 
-            for field in template.fields:
+            for field in template.fields:# 提取模板中的每一个字段
+                # 提取字段长度
                 flen = field.field_length
+                # 提取字段类型
                 fkey = field_types[field.field_type]
-                fdata = None
+                # fdata = None
 
-                # The length of the value byte slice is defined in the template
+                # 截取相应的数据长度,进行分析
                 dataslice = data[offset:offset+flen]
 
-                # Better solution than struct.unpack with variable field length
+                # 对于可变长度字段下面的方法可能比struct.unpack更加有效
                 fdata = 0
+                # enumerate使用实例
+                # >>>seasons = ['Spring', 'Summer', 'Fall', 'Winter']
+                # >>> list(enumerate(seasons))
+                # [(0, 'Spring'), (1, 'Summer'), (2, 'Fall'), (3, 'Winter')]
+
+                # reversed()用于反向排序
+
+                # >>> dataslice = b'\x01\x02\x03'
+                # >>> bytearray(dataslice)
+                # bytearray(b'\x01\x02\x03')
+                # >>> reversed(bytearray(dataslice))
+                # <reversed object at 0x000001192C620438>
+                # >>> enumerate(reversed(bytearray(dataslice)))
+                # <enumerate object at 0x000001192C61D7E0>
+                # >>> for idx, bytes in enumerate(reversed(bytearray(dataslice))):
+                # ...   print(idx, bytes)
+                # ...
+                # 0 3
+                # 1 2
+                # 2 1
+
+                # 提取数据部分,使用reversed主要是计算机字节序与网络字节序的关系
                 for idx, byte in enumerate(reversed(bytearray(dataslice))):
                     fdata += byte << (idx * 8)
-                if fkey == 'IPV4_SRC_ADDR':
+                if fkey == 'IPV4_SRC_ADDR': # 如果是源IP地址,转为为IP地址的字符串
                     new_record[fkey] = IP(fdata).ip_addr
-                elif fkey == 'IPV4_DST_ADDR':
+                elif fkey == 'IPV4_DST_ADDR': # 如果是目的IP地址,转为为IP地址的字符串
                     new_record[fkey] = IP(fdata).ip_addr
                 else:
                     new_record[fkey] = fdata
 
                 offset += flen
-                # print(new_record)
-
-            print(new_record)
+            # 把提取的内容直接写入数据库,这个代码的问题是,传统数据库灵活性有限,需要固定字段,推荐使用MongoDB
+            # 由于本次试验数据源仅仅来自于一个路由器,所以并没有考虑写入模板ID的情况
             netflowdb(new_record)
 
 
-    def __repr__(self):
+    def __repr__(self): # 格式化打印类时的显示字符串
         return "<DataFlowSet with template {} of length {} holding {} flows>"\
             .format(self.template_id, self.length, len(self.flows))
 
 
 class TemplateField:
-    """A field with type identifier and length.
+    """
+    仅仅用于记录模板中字段的类型和长度数据
     """
     def __init__(self, field_type, field_length):
         self.field_type = field_type  # integer
         self.field_length = field_length  # bytes
 
-    def __repr__(self):
+    def __repr__(self): # 格式化打印类时的显示字符串
         return "<TemplateField type {}:{}, length {}>".format(
             self.field_type, field_types[self.field_type], self.field_length)
 
 
 class TemplateRecord:
-    """A template record contained in a TemplateFlowSet.
+    """
+    仅仅用来记录模板内容,包括ID,数量和字段
     """
     def __init__(self, template_id, field_count, fields):
         self.template_id = template_id
         self.field_count = field_count
         self.fields = fields
 
-    def __repr__(self):
+    def __repr__(self): # 格式化打印类时的显示字符串
         return "<TemplateRecord {} with {} fields: {}>".format(
             self.template_id, self.field_count,
             ' '.join([field_types[field.field_type] for field in self.fields]))
@@ -283,42 +311,49 @@ class TemplateFlowSet:
     分析Template FlowSet,分析模板,便于后续分析Data FlowSet
     """
     def __init__(self, data):
-        # 分析数据的前四个字节,分别为FlowSet ID和长度
+        # 分析数据的前四个字节,分别为FlowSet ID和Template FlowSet的长度
         pack = struct.unpack('!HH', data[:4])
         # FlowSet ID,注意ID为0时为模板
         self.flowset_id = pack[0]
         # Template FlowSet的长度
-        self.length = pack[1]  # total length including this header in bytes
+        self.length = pack[1]
+        # 初始化模板为空字典
         self.templates = {}
 
-        offset = 4  # Skip header
+        # 略过已经分析的前四个字节
+        offset = 4
 
-        # Iterate through all template records in this template flowset
+        # 逐个分析在这个template flowset中的template record
         while offset != self.length:
+            # 分析第4-8个字节,分别为模板ID,和字段数量
             pack = struct.unpack('!HH', data[offset:offset+4])
             template_id = pack[0]
             field_count = pack[1]
-            # print('field_count:', field_count)
+            # 初始化字段列表为空列表
             fields = []
-            for field in range(field_count):
+            for field in range(field_count):# 按照字段数量逐个分析字段内容
+                # 每个字段4个字节,分别为类型和长度,offset += 4,用来略过上一个字段
                 offset += 4
+                # 提取字段类型和字段长度
                 field_type, field_length = struct.unpack('!HH', data[offset:offset+4])
+                # 如果字段类型不在field_types中,就设置为0,表示位置字段类型UNKNOWN_FIELD_TYPE
                 if field_type not in field_types:
-                    # print(field_type)
-                    field_type = 0  # Set field_type to UNKNOWN_FIELD_TYPE as fallback
+                    field_type = 0
+                # 使用类TemplateField产生实例field,其实只是换了一个存储数据的方式
                 field = TemplateField(field_type, field_length)
+                # 把记录字段数据的实例field放入fields列表中
                 fields.append(field)
 
-            # Create a tempalte object with all collected data
+            # 把前期获取的模板ID,字段数量,字段内容,通过类TemplateRecord产生实例来进行存储
             template = TemplateRecord(template_id, field_count, fields)
 
-            # Append the new template to the global templates list
+            # 把模板内容,放入以模板ID为键值的templates字典中
             self.templates[template.template_id] = template
 
-            # Set offset to next template_id field
+            # 分析下一个模板,略过最后一个分析的字段
             offset += 4
 
-    def __repr__(self):
+    def __repr__(self): # 格式化打印类时的显示字符串
         return "<TemplateFlowSet with id {} of length {} containing templates: {}>"\
             .format(self.flowset_id, self.length, self.templates.keys())
 
@@ -361,11 +396,15 @@ class ExportPacket:
             flowset_id = struct.unpack('!H', data[offset:offset+2])[0]
             # flowset_id == 0 非常重要,因为Template FlowSet会在这里发送,如果没有模板就没法对后续Data FlowSet进行分析
             if flowset_id == 0:
-                # 使用类TemplateFlowSet分析数据
+                # 使用类TemplateFlowSet分析数据,返回实例tfs(类TemplateFlowSet)
                 tfs = TemplateFlowSet(data[offset:])
+                # 把实例tfs(类TemplateFlowSet)中的属性templates,
+                # 更新到类ExportPacket属性templates中
                 self.templates.update(tfs.templates)
+                # 去除TemplateFlowSet头部,便于后续DataFlowSet的分析
                 offset += tfs.length
             else:
+                # 使用类DataFlowSet分析数据,返回实例dfs(类DataFlowSet)
                 dfs = DataFlowSet(data[offset:], self.templates)
                 self.flows += dfs.flows
                 offset += dfs.length
