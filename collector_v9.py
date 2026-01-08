@@ -280,7 +280,7 @@ class DataFlowSet:
 
 class TemplateField:
     """
-    仅仅用于记录模板中字段的类型和长度数据
+    仅用于记录模板中字段的类型和长度数据
     """
     def __init__(self, field_type, field_length):
         self.field_type = field_type  # integer
@@ -293,7 +293,7 @@ class TemplateField:
 
 class TemplateRecord:
     """
-    仅仅用来记录模板内容,包括ID,数量和字段
+    仅用来记录模板内容,包括ID,数量和字段
     """
     def __init__(self, template_id, field_count, fields):
         self.template_id = template_id

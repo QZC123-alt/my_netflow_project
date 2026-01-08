@@ -20,9 +20,7 @@ logging.getLogger().addHandler(ch)
 
 
 class SoftflowUDPHandler(socketserver.BaseRequestHandler):
-    # We need to save the templates our NetFlow device
-    # send over time. Templates are not resended every
-    # time a flow is sent to the collector.
+
     TEMPLATES = {}
 
     @classmethod
