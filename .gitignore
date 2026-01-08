@@ -1,0 +1,61 @@
+# ==================== Python 项目通用忽略 ====================
+# 编译生成的字节码文件
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Python虚拟环境
+venv/
+env/
+*.env
+
+# 分布式版本控制
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ==================== 编辑器/IDE 配置 ====================
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+.history/
+
+# PyCharm/IntelliJ
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# ==================== 项目专属文件 ====================
+# NetFlow 数据库文件
+netflow.sqlite
+*.db
+*.db-journal
+
+# NetFlow 数据导出文件（CSV/日志）
+*.csv
+netflow_data_*.csv
+*.log
+nfdump_data/
+
+# 临时文件
+*.tmp
+*.bak
+*.swp
+.DS_Store  # Mac系统隐藏文件
+
+# ==================== 第三方工具相关 ====================
+# nfdump 工具生成的文件
+nfcapd.*
+nfdump.*
+
+# Wireshark 抓包文件
+*.pcap
+*.pcapng
