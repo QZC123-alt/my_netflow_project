@@ -1,0 +1,52 @@
+input {
+    udp{
+        port => "4739"
+        codec => "netflow"
+        tags => "netflow_input"
+    }
+
+    kafka{
+        topics => ["mnet_agg"]
+        bootstrap_servers  => "kf1:9092,kf2:9092"
+        codec => "json"
+        tags => "ip_stats"
+    }
+}
+
+filter {
+    mutate {
+        add_field  => { "event_time" => "%{@timestamp}" }
+    }
+}
+
+output{
+    stdout{
+        codec => rubydebug
+    }
+
+    if "netflow_input" in [tags] {
+        elasticsearch{
+            hosts => "http://es1:9200"
+            index => "netflow-%{+YYYY.MM.dd}"
+            document_type => "_doc"
+            codec => "json"
+            template => "/usr/share/logstash/templates/logstash_netflow_tpl.json"
+        }
+
+         kafka{
+            topic_id => "mnet"
+            bootstrap_servers  => "kf1:9092,kf2:9092"
+            codec => "json"
+        }
+    }
+
+    if "ip_stats" in [tags] {
+        elasticsearch {
+            hosts => "http://es1:9200"
+            index => "ipstats-%{+YYYY.MM.dd}"
+            document_type => "_doc"
+            codec => "json"
+            template => "/usr/share/logstash/templates/logstash_ipstats_tpl.json"
+        }
+    }
+}

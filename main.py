@@ -1,10 +1,5 @@
-#!/usr/bin/env python3
-# -*- coding=utf-8 -*-
-# 本脚由亁颐堂现任明教教主编写，用于乾颐盾Python课程！
-# 教主QQ:605658506
-# 亁颐堂官网www.qytang.com
-# 教主技术进化论拓展你的技术新边疆
-# https://ke.qq.com/course/271956?tuin=24199d8a
+'''# -*- coding=utf-8 -*-
+
 
 import logging
 import sys
@@ -44,7 +39,7 @@ class SoftflowUDPHandler(socketserver.BaseRequestHandler):
 
 if __name__ == "__main__":
     createdb()
-    server = SoftflowUDPHandler.get_server('0.0.0.0', 9999)
+    server = SoftflowUDPHandler.get_server('0.0.0.0', 9995)
 
     logging.getLogger().setLevel(logging.DEBUG)
 
@@ -55,3 +50,71 @@ if __name__ == "__main__":
         raise
     except KeyboardInterrupt:
         raise
+'''
+
+#!/usr/bin/env python3
+"""
+主启动文件 - 整合三个项目的功能
+"""
+import threading
+import time
+import sys
+import os
+
+# 添加项目路径
+sys.path.append(os.path.dirname(__file__))
+
+def start_packet_capture():
+    """启动数据包捕获（来自packet_analysis）"""
+    from data_collection.packet_capture import start_capture
+    print("启动数据包捕获...")
+    start_capture()
+
+def start_anomaly_detection():
+    """启动异常检测（来自ai-network-anomaly）"""
+    from anomaly_detection.main_randomsplit import start_detection_service
+    print("启动异常检测...")
+    start_detection_service()
+
+def start_web_interface():
+    """启动Web界面（来自mnet）"""
+    os.chdir('web_interface')
+    import subprocess
+    print("启动Web界面...")
+    subprocess.run(['python', 'manage.py', 'runserver', '0.0.0.0:8000'])
+
+def main():
+    """主函数"""
+    print("启动网络流量分析系统...")
+    
+    # 创建线程
+    threads =    
+    # 数据包捕获线程
+    capture_thread = threading.Thread(target=start_packet_capture, daemon=True)
+    threads.append(capture_thread)
+    
+    # 异常检测线程  
+    detection_thread = threading.Thread(target=start_anomaly_detection, daemon=True)
+    threads.append(detection_thread)
+    
+    # Web界面线程
+    web_thread = threading.Thread(target=start_web_interface, daemon=True)
+    threads.append(web_thread)
+    
+    # 启动所有线程
+    for thread in threads:
+        thread.start()
+    
+    print("所有服务已启动！")
+    print("Web界面: http://localhost:8000")
+    print("按 Ctrl+C 退出")
+    
+    # 保持主线程运行
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("正在关闭系统...")
+
+if __name__ == "__main__":
+    main()
