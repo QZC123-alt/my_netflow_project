@@ -72,7 +72,7 @@ def start_packet_capture():
 
 def start_anomaly_detection():
     """启动异常检测（来自ai-network-anomaly）"""
-    from anomaly_detection.main_randomsplit import start_detection_service
+    from anomaly_detection.simple_detector import start_detection_service
     print("启动异常检测...")
     start_detection_service()
 
@@ -88,7 +88,7 @@ def main():
     print("启动网络流量分析系统...")
     
     # 创建线程
-    threads =    
+    threads = []
     # 数据包捕获线程
     capture_thread = threading.Thread(target=start_packet_capture, daemon=True)
     threads.append(capture_thread)
