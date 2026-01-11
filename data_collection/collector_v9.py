@@ -169,26 +169,9 @@ def createdb():
     conn = sqlite3.connect(DATABASE_PATH)
     cursor = conn.cursor()
 
-    """ # 执行创建表的任务
-    cursor.execute("create table netflowdb (源地址 varchar(40), 目的地址 varchar(40), 协议 int, 源端口 int, 目的端口 int, 入接口ID int, 入向字节数 int)")"""
-    # 创建 netflow 表
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS netflow (
-        ID INTEGER PRIMARY KEY AUTOINCREMENT,
-        IN_BYTES INTEGER,
-        OUT_BYTES INTEGER,
-        IN_PKTS INTEGER,
-        OUT_PKTS INTEGER,
-        IPV4_SRC_ADDR TEXT,
-        IPV4_DST_ADDR TEXT,
-        IPV6_SRC_ADDR TEXT,
-        IPV6_DST_ADDR TEXT,
-        L4_SRC_PORT INTEGER,
-        L4_DST_PORT INTEGER,
-        PROTOCOL INTEGER,
-        TIMESTAMP DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-    """)
+    # 执行创建表的任务
+    cursor.execute("create table netflowdb (源地址 varchar(40), 目的地址 varchar(40), 协议 int, 源端口 int, 目的端口 int, 入接口ID int, 入向字节数 int)")
+    
     conn.commit()
     conn.close()
     print("数据库初始化完成")
@@ -202,22 +185,14 @@ def netflowdb(netflow_dict):
     cursor = conn.cursor()
 
     # 读取Python字典数据，并逐条写入SQLite数据库
-    """ cursor.execute("insert into netflowd values ('%s', '%s', %d, %d, %d, %d, %d)" % (netflow_dict['IPV4_SRC_ADDR'],
+    cursor.execute("insert into netflow values ('%s', '%s', %d, %d, %d, %d, %d)" % (netflow_dict['IPV4_SRC_ADDR'],
                                                                                       netflow_dict['IPV4_DST_ADDR'],
                                                                                       netflow_dict['PROTOCOL'],
                                                                                       netflow_dict['L4_SRC_PORT'],
                                                                                       netflow_dict['L4_DST_PORT'],
                                                                                       netflow_dict['INPUT_INTERFACE_ID'],
-                                                                                      netflow_dict['IN_BYTES']))"""
-    cursor.execute("""INSERT INTO netflow (IN_BYTES, OUT_BYTES, IN_PKTS, OUT_PKTS, 
-                     IPV4_SRC_ADDR, IPV4_DST_ADDR, L4_SRC_PORT, L4_DST_PORT, 
-                     PROTOCOL, TIMESTAMP) 
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (netflow_dict['IN_BYTES'], netflow_dict['OUT_BYTES'],
-           netflow_dict['IN_PKTS'], netflow_dict['OUT_PKTS'],
-           netflow_dict['IPV4_SRC_ADDR'], netflow_dict['IPV4_DST_ADDR'],
-           netflow_dict['L4_SRC_PORT'], netflow_dict['L4_DST_PORT'],
-           netflow_dict['PROTOCOL'], datetime.datetime.now()))
+                                                                                      netflow_dict['IN_BYTES']))
+
 
     # 提交数据
     conn.commit()

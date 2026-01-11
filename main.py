@@ -76,15 +76,15 @@ def start_packet_capture():
     """启动NetFlow数据收集 - 处理真实NetFlow数据"""
     try:
         # 直接使用您的collector_v9.py处理NetFlow
-        from data_collection.collector_v9 import createdb, parse_args
+        from data_collection.collector_v9 import createdb
         import socketserver
         print("初始化数据库...")
-        createdb()  # 创建netflow.db和flowdata表
+        createdb()  # 创建netflow表
         
         print("启动NetFlow收集器，监听端口 9995...")
         
         # 使用collector_v9.py的NetFlow处理逻辑
-        from data_collection.collector_v9 import ExportPacket, TemplateData
+        from data_collection.collector_v9 import ExportPacket,TemplateFlowSet
         
         class NetFlowUDPHandler(socketserver.BaseRequestHandler):
             TEMPLATES = {}
@@ -146,12 +146,12 @@ def start_simple_monitor():
                 # 检查表是否存在
                 cursor.execute("""
                     SELECT name FROM sqlite_master 
-                    WHERE type='table' AND name='flowdata'
+                    WHERE type='table' AND name='netflow'
                 """)
                 flow_table_exists = cursor.fetchone()
                 
                 if flow_table_exists:
-                    cursor.execute("SELECT COUNT(*) FROM flowdata")
+                    cursor.execute("SELECT COUNT(*) FROM netflow")
                     total_flows = cursor.fetchone()[0]
                 else:
                     total_flows = 0
