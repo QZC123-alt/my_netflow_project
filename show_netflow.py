@@ -15,7 +15,7 @@ protocol_map = {'6/22': 'SSH',
                 '17/5355': 'LLMNR'}
 
 # 连接数据库
-conn = sqlite3.connect('netflow.sqlite')
+conn = sqlite3.connect(DATABASE_PATH)
 cursor = conn.cursor()
 
 # 找到唯一的目的端口和协议

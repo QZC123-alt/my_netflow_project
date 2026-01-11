@@ -30,3 +30,18 @@ WEB_CONFIG = {
     'port': 8000,
     'debug': True
 }
+
+
+# 数据库配置
+DATABASE_PATH = 'netflow.db'  # 统一数据库名称
+
+# NetFlow配置
+NETFLOW_HOST = '0.0.0.0'
+NETFLOW_PORT = 9995  # 使用您现有的端口
+
+# 异常检测配置
+ANOMALY_THRESHOLD = 0.8
+CHECK_INTERVAL = 5  # 秒
+
+# 监控配置
+MONITOR_INTERVAL = 30  # 秒

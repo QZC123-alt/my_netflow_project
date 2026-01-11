@@ -5,6 +5,16 @@
 import struct
 import os
 import sqlite3
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+
+# 将所有的 DATABASE_PATH 改为从配置文件读取
+try:
+    from config import DATABASE_PATH
+except ImportError:
+    DATABASE_PATH = 'netflow.db'  # 备用方案
+
 
 
 field_types = {
@@ -150,12 +160,12 @@ def createdb():
     """
     创建数据库表,推荐未来改进为MongoDB
     """
-    # 判断是否存在数据库,如果存在就删除
-    if os.path.exists('netflow.sqlite'):
-        os.remove('netflow.sqlite')
+    # 判断是否存在数据库,如果存在就删除   原先是这个 netflow.sqlite
+    if os.path.exists(DATABASE_PATH): 
+        os.remove(DATABASE_PATH)
 
     # 连接SQLite数据库
-    conn = sqlite3.connect('netflow.sqlite')
+    conn = sqlite3.connect(DATABASE_PATH)
     cursor = conn.cursor()
 
     # 执行创建表的任务
@@ -169,7 +179,7 @@ def netflowdb(netflow_dict):
     写入数据库,推荐未来改进为MongoDB
     """
     # 连接SQLite数据库
-    conn = sqlite3.connect('netflow.sqlite')
+    conn = sqlite3.connect(DATABASE_PATH)
     cursor = conn.cursor()
 
     # 读取Python字典数据，并逐条写入SQLite数据库

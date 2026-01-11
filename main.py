@@ -94,13 +94,14 @@ def start_anomaly_detection():
 def start_simple_monitor():
     """简单的监控显示"""
     try:
+        from config import DATABASE_PATH, MONITOR_INTERVAL
         import sqlite3
         
         print("启动监控显示...")
         
         while True:
             try:
-                conn = sqlite3.connect('flow.db')
+                conn = sqlite3.connect(DATABASE_PATH)
                 cursor = conn.cursor()
                 
                 # 检查表是否存在
@@ -135,7 +136,7 @@ def start_simple_monitor():
             except Exception as e:
                 print(f"监控出错: {e}")
             
-            time.sleep(30)  # 每30秒显示一次统计
+            time.sleep(MONITOR_INTERVAL)
                 
     except Exception as e:
         print(f"启动监控失败: {e}")
@@ -153,6 +154,7 @@ def start_web_interface():
 def main():
     """主函数"""
     print("启动网络流量分析系统...")
+    print("=" * 50)
     
     # 创建线程
     threads = []
@@ -180,7 +182,7 @@ def main():
     print("所有服务已启动！")
     print("NetFlow服务器监听端口: 9995")
     'print("Web界面: http://localhost:8000")'
-    print("📊 监控显示: 每30秒更新统计")
+    print("监控显示: 每30秒更新统计")
     print("按 Ctrl+C 退出")
     print("=" * 50)
 
