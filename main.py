@@ -64,22 +64,38 @@ import socketserver
 # 添加项目路径
 sys.path.append(os.path.dirname(__file__))
 
-def start_packet_capture():
-    """启动NetFlow数据收集（使用您的collector_v9.py）"""
+"""def start_packet_capture():
+    启动NetFlow数据收集（使用您的collector_v9.py）
     try:
         from data_collection.netflow_server import start_netflow_server
         print("启动NetFlow收集器...")
         start_netflow_server()
     except Exception as e:
-        print(f"启动NetFlow收集器失败: {e}")
-  
+        print(f"启动NetFlow收集器失败: {e}")"""
+def start_packet_capture():
+    """启动NetFlow数据收集"""
+    try:
+        # 直接使用collector_v9.py中的代码
+        from collector_v9 import SoftflowUDPHandler, createdb
+        
+        print("初始化数据库...")
+        createdb()
+        
+        import socketserver
+        print("启动NetFlow收集器，监听端口 9995...")
+        server = socketserver.UDPServer(("0.0.0.0", 9995), SoftflowUDPHandler)
+        server.serve_forever()
+        
+    except Exception as e:
+        print(f"启动NetFlow收集器失败: {e}")  
 
 
 def start_anomaly_detection():
-    '''  """启动异常检测（来自ai-network-anomaly）"""
+    """启动异常检测（来自ai-network-anomaly）
     from anomaly_detection.simple_detector import start_detection_service
     print("启动异常检测...")
-    start_detection_service()'''
+    start_detection_service()"""
+
     """启动数据处理和异常检测"""
     try:
         from data_integration.flow_processor import FlowProcessor

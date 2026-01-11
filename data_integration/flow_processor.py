@@ -1,4 +1,5 @@
-﻿#!/usr/bin/env python3
+﻿
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 import sqlite3
@@ -25,37 +26,12 @@ class FlowProcessor:
         self.is_running = False
         self.check_interval = 5  # 每5秒检查一次新数据
         
-        # 确保数据库和表存在
-        self.ensure_database()
-        
-    def ensure_database(self):
-        """确保数据库和表存在"""
-        try:
-            # 导入collector_v9的createdb函数
-            from collector_v9 import createdb
-            createdb()
-            logger.info("数据库检查完成")
-        except Exception as e:
-            logger.error(f"数据库初始化失败: {e}")
-    
     def get_new_flows(self):
         """从数据库获取最新的流记录"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
-            # 先检查表是否存在
-            cursor.execute("""
-                SELECT name FROM sqlite_master 
-                WHERE type='table' AND name='flow_data'
-            """)
-            table_exists = cursor.fetchone()
-            
-            if not table_exists:
-                logger.warning("flow_data表不存在，尝试重新创建")
-                conn.close()
-                self.ensure_database()
-                return            
             # 获取最近的流记录
             cursor.execute("""
                 SELECT timestamp, in_bytes, out_bytes, protocol, in_pkts, out_pkts 
@@ -97,13 +73,14 @@ class FlowProcessor:
                 if result and result['is_anomaly']:
                     logger.warning(f"⚠️  发现异常流量! 分数: {result['score']:.2f}")
                     self.handle_anomaly(flow_data, result)
-        else:
-            logger.debug("没有新的流数据")
     
     def handle_anomaly(self, flow_data, result):
         """处理异常检测结果"""
+        # 这里可以添加报警逻辑
         logger.warning(f"异常详情: {flow_data}")
         logger.warning(f"检测结果: {result}")
+        
+        # 存储异常记录（可选）
         self.save_anomaly_record(flow_data, result)
     
     def save_anomaly_record(self, flow_data, result):
