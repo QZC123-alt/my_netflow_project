@@ -65,10 +65,13 @@ import os
 sys.path.append(os.path.dirname(__file__))
 
 def start_packet_capture():
-    """启动数据包捕获（来自packet_analysis）"""
-    from data_collection.packet_capture import start_capture
-    print("启动数据包捕获...")
-    start_capture()
+    """启动NetFlow数据收集（使用您的collector_v9.py）"""
+    try:
+        from data_collection.netflow_server import start_netflow_server
+        print("启动NetFlow收集器...")
+        start_netflow_server()
+    except Exception as e:
+        print(f"启动NetFlow收集器失败: {e}")
 
 def start_anomaly_detection():
     """启动异常检测（来自ai-network-anomaly）"""
@@ -77,11 +80,14 @@ def start_anomaly_detection():
     start_detection_service()
 
 def start_web_interface():
+    """暂时跳过Web界面"""
+    print("Web interface skipped for now")
+    pass
     """启动Web界面（来自mnet）"""
-    os.chdir('web_interface')
+    '''  os.chdir('web_interface')
     import subprocess
     print("启动Web界面...")
-    subprocess.run(['python', 'manage.py', 'runserver', '0.0.0.0:8000'])
+    subprocess.run(['python', 'manage.py', 'runserver', '0.0.0.0:8000'])'''
 
 def main():
     """主函数"""
@@ -106,6 +112,7 @@ def main():
         thread.start()
     
     print("所有服务已启动！")
+    print("NetFlow服务器监听端口: 9995")
     print("Web界面: http://localhost:8000")
     print("按 Ctrl+C 退出")
     
