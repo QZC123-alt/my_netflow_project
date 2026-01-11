@@ -1,5 +1,4 @@
-﻿
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 import sqlite3
@@ -11,7 +10,6 @@ import os
 
 # 添加项目路径
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-sys.path.append(os.path.dirname(__file__))
 
 from anomaly_detection.simple_detector import SimpleAnomalyDetector
 
@@ -21,88 +19,38 @@ logger = logging.getLogger(__name__)
 class FlowProcessor:
     """连接数据收集和异常检测的桥梁"""
     
-def __init__(self, db_path='netflow.db'):
-        self.db_path = db_path
+    def __init__(self):
+        self.db_path = 'netflow.db'
         self.detector = SimpleAnomalyDetector()
         self.is_running = False
-        self.check_interval = 30  # 每30秒检查一次新数据
-         
+        self.check_interval = 30
+        
+        # 等待数据库初始化完成
         time.sleep(5)
         self.ensure_database()
         
-def get_new_flows(self):
-    """从数据库获取最新的NetFlow流记录"""
-    try:
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        # 使用您collector_v9.py中的真实字段名
-        cursor.execute("""
-            SELECT IN_BYTES, OUT_BYTES, IN_PKTS, OUT_PKTS, PROTOCOL, IPV4_SRC_ADDR, IPV4_DST_ADDR, L4_SRC_PORT, L4_DST_PORT, TIMESTAMP
-            FROM flowdata 
-            WHERE TIMESTAMP > datetime('now', '-60 seconds')
-            ORDER BY ID DESC
-            LIMIT 10
-        """)
-        
-        flows = cursor.fetchall()
-        conn.close()
-        
-        return flows
-        
-    except Exception as e:
-        if logger.level == logging.DEBUG:
-            logger.error(f"获取流数据失败: {e}")
-        return
-
-def process_new_flows(self):
-    """处理新的NetFlow流数据"""
-    flows = self.get_new_flows()
-    
-    if flows:
-        logger.info(f"发现 {len(flows)} 条新的NetFlow流记录")
-        
-        for flow in flows:
-            # 转换为检测器需要的格式（使用真实NetFlow字段）
-            flow_data = {
-                'timestamp': flow[9],
-                'in_bytes': flow[0],
-                'out_bytes': flow[1], 
-                'protocol': flow[4],
-                'in_pkts': flow[2],
-                'out_pkts': flow[3],
-                'src_ip': flow[5],
-                'dst_ip': flow[6],
-                'src_port': flow[7],
-                'dst_port': flow[8]
-            }
-            
-            # 进行异常检测
-            result = self.detector.analyze_flow(flow_data)
-            
-            if result and result['is_anomaly']:
-                logger.warning(f"⚠️  发现异常流量! 分数: {result['score']:.2f}")
-                logger.warning(f"异常流: {flow[5]}:{flow[7]} -> {flow[6]}:{flow[8]}, 协议: {flow[4]}")
-                self.handle_anomaly(flow_data, result)
-    else:
-        logger.debug("没有新的NetFlow流数据")
-    
-def handle_anomaly(self, flow_data, result):
-        """处理异常检测结果"""
-        # 这里可以添加报警逻辑
-        logger.warning(f"异常详情: {flow_data}")
-        logger.warning(f"检测结果: {result}")
-        
-        # 存储异常记录（可选）
-        self.save_anomaly_record(flow_data, result)
-    
-def save_anomaly_record(self, flow_data, result):
-        """保存异常记录到数据库"""
+    def ensure_database(self):
+        """确保数据库和表存在"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
-            # 创建异常记录表（如果不存在）
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS netflow (
+                    ID INTEGER PRIMARY KEY AUTOINCREMENT,
+                    IN_BYTES INTEGER,
+                    OUT_BYTES INTEGER,
+                    IN_PKTS INTEGER,
+                    OUT_PKTS INTEGER,
+                    IPV4_SRC_ADDR TEXT,
+                    IPV4_DST_ADDR TEXT,
+                    L4_SRC_PORT INTEGER,
+                    L4_DST_PORT INTEGER,
+                    PROTOCOL INTEGER,
+                    TIMESTAMP DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS anomaly_records (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -113,7 +61,83 @@ def save_anomaly_record(self, flow_data, result):
                 )
             """)
             
-            # 插入异常记录
+            conn.commit()
+            conn.close()
+            logger.info("数据库检查完成")
+        except Exception as e:
+            logger.error(f"数据库初始化失败: {e}")
+    
+    def get_new_flows(self):
+        """从数据库获取最新的流记录"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT IN_BYTES, OUT_BYTES, PROTOCOL, IN_PKTS, L4_SRC_PORT, L4_DST_PORT 
+                FROM netflow 
+                WHERE TIMESTAMP > datetime('now', '-60 seconds')
+                ORDER BY ID DESC
+                LIMIT 10
+            """)
+            
+            flows = cursor.fetchall()
+            conn.close()
+            return flows
+            
+        except Exception as e:
+            if logger.level == logging.DEBUG:
+                logger.error(f"获取流数据失败: {e}")
+            return    
+            
+    def process_new_flows(self):
+        """处理新的流数据"""
+        flows = self.get_new_flows()
+        
+        if flows:
+            logger.info(f"发现 {len(flows)} 条新的流记录")
+            
+            for flow in flows:
+                flow_data = {
+                    'timestamp': time.time(),
+                    'in_bytes': flow[0],
+                    'out_bytes': flow[1], 
+                    'protocol': flow[2],
+                    'in_pkts': flow[3],
+                    'src_port': flow[4],
+                    'dst_port': flow[5]
+                }
+                
+                result = self.detector.analyze_flow(flow_data)
+                
+                if result and result['is_anomaly']:
+                    logger.warning(f"⚠️  发现异常流量! 分数: {result['score']:.2f}")
+                    self.handle_anomaly(flow_data, result)
+        else:
+            logger.debug("没有新的流数据")
+    
+    def handle_anomaly(self, flow_data, result):
+        """处理异常检测结果"""
+        logger.warning(f"异常详情: {flow_data}")
+        logger.warning(f"检测结果: {result}")
+        self.save_anomaly_record(flow_data, result)
+    
+    def save_anomaly_record(self, flow_data, result):
+        """保存异常记录到数据库"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS anomaly_records (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp DATETIME,
+                    flow_data TEXT,
+                    anomaly_score REAL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
             cursor.execute("""
                 INSERT INTO anomaly_records (timestamp, flow_data, anomaly_score)
                 VALUES (?, ?, ?)
@@ -125,7 +149,7 @@ def save_anomaly_record(self, flow_data, result):
         except Exception as e:
             logger.error(f"保存异常记录失败: {e}")
     
-def start_processing(self):
+    def start_processing(self):
         """开始处理循环"""
         self.is_running = True
         logger.info("开始流量数据处理...")
@@ -138,7 +162,7 @@ def start_processing(self):
                 logger.error(f"处理循环出错: {e}")
                 time.sleep(1)
     
-def stop_processing(self):
+    def stop_processing(self):
         """停止处理"""
         self.is_running = False
         logger.info("停止流量数据处理")

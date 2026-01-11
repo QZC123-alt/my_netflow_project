@@ -55,20 +55,20 @@ class FlowProcessor:
             # 先检查表是否存在
             cursor.execute("""
                 SELECT name FROM sqlite_master 
-                WHERE type='table' AND name='flowdata'
+                WHERE type='table' AND name='netflow'
             """)
             table_exists = cursor.fetchone()
             
             if not table_exists:
-                logger.warning("flowdata表不存在，尝试重新创建")
+                logger.warning("netflow表不存在，尝试重新创建")
                 conn.close()
                 self.ensure_database()
                 return            
             # 获取最近的流记录
             cursor.execute("""
                 SELECT in_bytes, out_bytes, protocol, in_pkts, l4_src_port, l4_dst_port 
-                FROM flowdata 
-                WHERE ID > (SELECT COALESCE(max(ID), 0) FROM flowdata) - 10
+                FROM netflow 
+                WHERE ID > (SELECT COALESCE(max(ID), 0) FROM netflow) - 10
                 ORDER BY ID DESC
                 LIMIT 10
             """)

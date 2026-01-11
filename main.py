@@ -75,13 +75,16 @@ sys.path.append(os.path.dirname(__file__))
 def start_packet_capture():
     """启动NetFlow数据收集 - 处理真实NetFlow数据"""
     try:
-        import socketserver  # 直接导入标准库
-        from data_collection.collector_v9 import createdb, ExportPacket
-        
+        # 直接使用您的collector_v9.py处理NetFlow
+        from data_collection.collector_v9 import createdb, parse_args
+        import socketserver
         print("初始化数据库...")
-        createdb()
+        createdb()  # 创建netflow.db和flowdata表
         
         print("启动NetFlow收集器，监听端口 9995...")
+        
+        # 使用collector_v9.py的NetFlow处理逻辑
+        from data_collection.collector_v9 import ExportPacket, TemplateData
         
         class NetFlowUDPHandler(socketserver.BaseRequestHandler):
             TEMPLATES = {}
@@ -91,11 +94,15 @@ def start_packet_capture():
                 host = self.client_address[0]
                 
                 try:
-                    # 使用NetFlow解析逻辑
+                    # 使用您现有的NetFlow解析逻辑
                     export = ExportPacket(data, self.TEMPLATES)
                     self.TEMPLATES.update(export.templates)
                     
-                    print(f"📥 收到来自 {host} 的NetFlow数据，长度: {len(data)} 字节")
+                    # 流数据会自动存储到netflow.db（通过collector_v9.py的代码）
+                    if hasattr(export, 'flows') and export.flows:
+                        print(f"📥 收到来自 {host} 的NetFlow数据，处理了 {len(export.flows)} 个流")
+                    else:
+                        print(f"📥 收到来自 {host} 的NetFlow数据包，长度: {len(data)} 字节")
                         
                 except Exception as e:
                     print(f"处理NetFlow数据失败: {e}")
