@@ -170,7 +170,7 @@ def createdb():
     cursor = conn.cursor()
 
     # 执行创建表的任务
-    cursor.execute("create table netflowdb (源地址 varchar(40), 目的地址 varchar(40), 协议 int, 源端口 int, 目的端口 int, 入接口ID int, 入向字节数 int)")
+    cursor.execute("create table netflow (源地址 varchar(40), 目的地址 varchar(40), 协议 int, 源端口 int, 目的端口 int, 入接口ID int, 入向字节数 int)")
     
     conn.commit()
     conn.close()
