@@ -73,22 +73,38 @@ sys.path.append(os.path.dirname(__file__))
     except Exception as e:
         print(f"启动NetFlow收集器失败: {e}")"""
 def start_packet_capture():
-    """启动NetFlow数据收集"""
+    """启动NetFlow数据收集 - 处理真实NetFlow数据"""
     try:
-        # 直接使用collector_v9.py中的代码
-        from collector_v9 import SoftflowUDPHandler, createdb
+        import socketserver  # 直接导入标准库
+        from data_collection.collector_v9 import createdb, ExportPacket
         
         print("初始化数据库...")
         createdb()
         
-        import socketserver
         print("启动NetFlow收集器，监听端口 9995...")
-        server = socketserver.UDPServer(("0.0.0.0", 9995), SoftflowUDPHandler)
+        
+        class NetFlowUDPHandler(socketserver.BaseRequestHandler):
+            TEMPLATES = {}
+            
+            def handle(self):
+                data = self.request[0]
+                host = self.client_address[0]
+                
+                try:
+                    # 使用NetFlow解析逻辑
+                    export = ExportPacket(data, self.TEMPLATES)
+                    self.TEMPLATES.update(export.templates)
+                    
+                    print(f"📥 收到来自 {host} 的NetFlow数据，长度: {len(data)} 字节")
+                        
+                except Exception as e:
+                    print(f"处理NetFlow数据失败: {e}")
+        
+        server = socketserver.UDPServer(("0.0.0.0", 9995), NetFlowUDPHandler)
         server.serve_forever()
         
     except Exception as e:
-        print(f"启动NetFlow收集器失败: {e}")  
-
+        print(f"启动NetFlow收集器失败: {e}")
 
 def start_anomaly_detection():
     """启动异常检测（来自ai-network-anomaly）

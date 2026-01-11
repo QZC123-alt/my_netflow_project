@@ -170,16 +170,34 @@ def createdb():
 
     # 执行创建表的任务
     cursor.execute("create table netflowdb (源地址 varchar(40), 目的地址 varchar(40), 协议 int, 源端口 int, 目的端口 int, 入接口ID int, 入向字节数 int)")
-
+    # 创建 flowdata 表
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS flowdata (
+        ID INTEGER PRIMARY KEY AUTOINCREMENT,
+        IN_BYTES INTEGER,
+        OUT_BYTES INTEGER,
+        IN_PKTS INTEGER,
+        OUT_PKTS INTEGER,
+        IPV4_SRC_ADDR TEXT,
+        IPV4_DST_ADDR TEXT,
+        IPV6_SRC_ADDR TEXT,
+        IPV6_DST_ADDR TEXT,
+        L4_SRC_PORT INTEGER,
+        L4_DST_PORT INTEGER,
+        PROTOCOL INTEGER,
+        TIMESTAMP DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
     conn.commit()
-
+    conn.close()
+    print("数据库初始化完成")
 
 def netflowdb(netflow_dict):
     """
     写入数据库,推荐未来改进为MongoDB
     """
     # 连接SQLite数据库
-    conn = sqlite3.connect(DATABASE_PATH)
+    conn = sqlite3.connect("netflow.db")
     cursor = conn.cursor()
 
     # 读取Python字典数据，并逐条写入SQLite数据库
