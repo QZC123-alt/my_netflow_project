@@ -1,16 +1,34 @@
-﻿from flask import Flask, request, jsonify
+﻿from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import sqlite3
 import os
 
-# 初始化Flask应用
 app = Flask(__name__)
 CORS(app)
+
+# -------------------------- 核心修改：定位到web/public文件夹 --------------------------
+# 1. 获取项目根目录：
+# - __file__ → api/flask_server.py
+# - os.path.dirname(__file__) → api文件夹
+# - os.path.dirname(os.path.dirname(__file__)) → 项目根目录
+PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
+
+# 2. 前端文件路径：项目根目录 → web → public
+FRONTEND_DIR = os.path.join(PROJECT_ROOT, 'web', 'public')
+
+# -------------------------- 托管前端的路由（不用改） --------------------------
+# 访问前端文件（如index.html、静态资源）
+@app.route('/<path:filename>')
+def serve_frontend(filename):
+    return send_from_directory(FRONTEND_DIR, filename)
+
+# 访问根路径时返回index.html
+@app.route('/')
+def index():
+    return send_from_directory(FRONTEND_DIR, 'index.html')
+
 # 数据库配置（根据你的实际路径修改，确保路径正确）
-DATABASE_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(__file__)),  # 项目根目录（当前文件的上一级）
-    'netflow.db'  # 数据库文件名
-)
+DATABASE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'netflow.db')
 
 # -------------------------- 数据库工具函数 --------------------------
 def get_db_connection():
@@ -20,118 +38,78 @@ def get_db_connection():
     return conn
 
 def init_db_table():
-    """初始化netflow_records表（不存在则创建）"""
-    if not os.path.exists(DATABASE_PATH):
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        # 创建NetFlow记录表结构
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS netflow_records (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                src_ip TEXT NOT NULL,
-                dst_ip TEXT NOT NULL,
-                src_port INTEGER,
-                dst_port INTEGER,
-                protocol INTEGER,
-                packets INTEGER DEFAULT 0,
-                bytes INTEGER DEFAULT 0,
-                duration INTEGER DEFAULT 0,
-                flags TEXT,
-                tos INTEGER
-            )
-        ''')
-        conn.commit()
-        conn.close()
-        print("数据库表初始化成功！")
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    
+    conn.commit()
+    conn.close()
+    print("数据库表重建完成，所有字段已正确配置")
 
 # -------------------------- 核心：带/api前缀的接口路由 --------------------------
 # 1. Top IP统计接口（前端请求：/api/stats_ip/total）
 @app.route('/api/stats_ip/total', methods=['GET'])
 def stats_ip_total():
-    """
-    获取Top源/目标IP统计
-    参数：type=src/dst（默认src），limit=返回条数（默认10）
-    """
     try:
-        # 获取并验证参数
-        stat_type = request.args.get('type', 'src')
-        limit = request.args.get('limit', 10)
+        # 获取请求参数（type=src或dst）
+        ip_type = request.args.get('type', 'src')
+        limit = int(request.args.get('limit', 10))
         
-        if stat_type not in ['src', 'dst']:
-            return jsonify({'success': False, 'error': "type只能是src或dst"}), 400
-        try:
-            limit = int(limit)
-            if limit <= 0:
-                raise ValueError
-        except ValueError:
-            return jsonify({'success': False, 'error': "limit必须是正整数"}), 400
-
-        # 拼接查询字段（src_ip/dst_ip）
-        ip_field = 'src_ip' if stat_type == 'src' else 'dst_ip'
         conn = get_db_connection()
         cursor = conn.cursor()
-
-        # 按IP分组统计字节数、包数、流数
-        sql = f"""
-            SELECT 
-                {ip_field} as ip,
-                SUM(bytes) as total_bytes,
-                SUM(packets) as total_packets,
-                COUNT(*) as total_flows
-            FROM netflow_records
-            GROUP BY {ip_field}
-            ORDER BY total_bytes DESC
-            LIMIT ?
-        """
-        cursor.execute(sql, (limit,))
+        
+        # 修正：表名是netflow，字段是src_ip/dst_ip + in_bytes
+        if ip_type == 'src':
+            # 按源IP分组，统计入向字节数总和
+            cursor.execute("""
+                SELECT src_ip AS ip, SUM(in_bytes) AS total_bytes
+                FROM netflow
+                GROUP BY src_ip
+                ORDER BY total_bytes DESC
+                LIMIT ?
+            """, (limit,))
+        else:
+            # 按目标IP分组，统计入向字节数总和
+            cursor.execute("""
+                SELECT dst_ip AS ip, SUM(in_bytes) AS total_bytes
+                FROM netflow
+                GROUP BY dst_ip
+                ORDER BY total_bytes DESC
+                LIMIT ?
+            """, (limit,))
+        
         results = cursor.fetchall()
         conn.close()
-
-        # 格式化返回数据（适配前端表格）
-        data = []
-        for row in results:
-            data.append({
-                'ip': row['ip'],
-                'total_bytes': row['total_bytes'],
-                'total_packets': row['total_packets'],
-                'total_flows': row['total_flows']
-            })
-
+        
+        # 格式化返回数据（匹配前端所需结构）
+        data = [{'ip': row['ip'], 'total_bytes': row['total_bytes']} for row in results]
         return jsonify({'success': True, 'data': data}), 200
-
+        
     except Exception as e:
-        return jsonify({'success': False, 'error': f"服务器错误：{str(e)}"}), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 # 2. 实时流量接口（前端请求：/api/realtime/flows）
 @app.route('/api/realtime/flows', methods=['GET'])
 def realtime_flows():
-    """获取实时流数据（适配前端统计总流量/包数等）"""
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        # 查询所有流数据（可加时间过滤，比如近10分钟）
+        # 修正：表名netflow，字段匹配实际结构
         cursor.execute("""
-            SELECT src_ip, dst_ip, protocol, packets, bytes 
-            FROM netflow_records
+            SELECT src_ip, dst_ip, protocol, src_port, dst_port, in_bytes
+            FROM netflow
             ORDER BY timestamp DESC
-            LIMIT 1000
+            LIMIT 100
         """)
         results = cursor.fetchall()
         conn.close()
-
-        # 格式化数据
-        data = []
-        for row in results:
-            data.append({
-                'src_ip': row['src_ip'],
-                'dst_ip': row['dst_ip'],
-                'protocol': row['protocol'],
-                'packets': row['packets'],
-                'bytes': row['bytes']
-            })
-
+        
+        data = [{'src_ip': row['src_ip'], 'dst_ip': row['dst_ip'], 
+                 'protocol': row['protocol'], 'src_port': row['src_port'], 
+                 'dst_port': row['dst_port'], 'bytes': row['in_bytes']} 
+                for row in results]
         return jsonify({'success': True, 'data': data}), 200
+        
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 

@@ -161,16 +161,24 @@ def createdb():
     """
     创建数据库表,推荐未来改进为MongoDB
     """
-    # 判断是否存在数据库,如果存在就删除   原先是这个 netflow.sqlite
     if os.path.exists(DATABASE_PATH): 
         os.remove(DATABASE_PATH)
 
-    # 连接SQLite数据库
     conn = sqlite3.connect(DATABASE_PATH)
     cursor = conn.cursor()
 
-    # 执行创建表的任务
-    cursor.execute("create table netflow (源地址 varchar(40), 目的地址 varchar(40), 协议 int, 源端口 int, 目的端口 int, 入接口ID int, 入向字节数 int)")
+    # 适配新表：英文字段名 + 新增OUT_BYTES
+    cursor.execute("""create table netflow (
+        src_ip varchar(40), 
+        dst_ip varchar(40), 
+        protocol int, 
+        src_port int, 
+        dst_port int, 
+        input_interface_id int, 
+        in_bytes int,
+        out_bytes int,  -- 新增字段
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP  -- 必带字段
+    )""")
     
     conn.commit()
     conn.close()
@@ -180,22 +188,30 @@ def netflowdb(netflow_dict):
     """
     写入数据库,推荐未来改进为MongoDB
     """
-    # 连接SQLite数据库
-    conn = sqlite3.connect("netflow.db")
+    conn = sqlite3.connect(DATABASE_PATH)
     cursor = conn.cursor()
 
-    # 读取Python字典数据，并逐条写入SQLite数据库
-    cursor.execute("insert into netflow values ('%s', '%s', %d, %d, %d, %d, %d)" % (netflow_dict['IPV4_SRC_ADDR'],
-                                                                                      netflow_dict['IPV4_DST_ADDR'],
-                                                                                      netflow_dict['PROTOCOL'],
-                                                                                      netflow_dict['L4_SRC_PORT'],
-                                                                                      netflow_dict['L4_DST_PORT'],
-                                                                                      netflow_dict['INPUT_INTERFACE_ID'],
-                                                                                      netflow_dict['IN_BYTES']))
+    # 2. 修改插入SQL：新增timestamp字段
+    sql = """insert into netflow (
+        src_ip, dst_ip, protocol, src_port, dst_port, 
+        input_interface_id, in_bytes, out_bytes, timestamp  -- 新增timestamp字段
+    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)"""  # 多一个占位符
+    
+    # 3. 插入参数：最后补充当前时间作为timestamp
+    cursor.execute(sql, (
+        netflow_dict['IPV4_SRC_ADDR'],
+        netflow_dict['IPV4_DST_ADDR'],
+        netflow_dict['PROTOCOL'],
+        netflow_dict['L4_SRC_PORT'],
+        netflow_dict['L4_DST_PORT'],
+        netflow_dict['INPUT_INTERFACE_ID'],
+        netflow_dict['IN_BYTES'],
+        netflow_dict.get('OUT_BYTES', 0),  # 无out_bytes时默认0
+        datetime.datetime.now()  # 新增：写入当前时间作为timestamp
+    ))
 
-
-    # 提交数据
     conn.commit()
+    conn.close()  # 建议增加关闭连接，避免资源泄漏
 
 
 class IP:
