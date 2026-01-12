@@ -36,7 +36,7 @@
 			padding: 25px;
 			margin-bottom: 20px;
 			box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
-			transition: transform 0.3s ease, box-shadow 0.3s ease;
+			transition: transform 0.3s ease,box-shadow 0.3s ease;
 		}
 
 			.stat-card:hover {
@@ -135,6 +135,10 @@
 			z-index: 1000;
 			max-width: 350px;
 		}
+
+		.spin {
+			animation: spin 1s linear infinite;
+		}
 	</style>
 </head>
 <body>
@@ -143,7 +147,7 @@
 		<nav class="navbar navbar-expand-lg navbar-light">
 			<div class="container-fluid">
 				<a class="navbar-brand" href="#">
-					<i class="bi bi-lightning-charge-fill text-primary"></i>
+					<i class="bi bi-lightning-charge-fill text-primary"></</i>
 					<strong>NetFlow监控仪表板</strong>
 				</a>
 				<div class="navbar-text">
@@ -152,7 +156,6 @@
 				</div>
 			</div>
 		</nav>
-
 		<!-- 主容器 -->
 		<div class="main-container">
 			<!-- 警告消息 -->
@@ -162,14 +165,13 @@
 					<button type="button" class="btn-close" @click="showAlert = false"></button>
 				</div>
 			</div>
-
 			<!-- 统计卡片区域 -->
 			<div class="row mb-4">
 				<div class="col-lg-2 col-md-4 col-sm-6">
 					<div class="stat-card text-center">
 						<div class="stat-value">{{ formatNumber(stats.total_flows) }}</div>
 						<div class="stat-label">
-							<i class="bi bi-diagram-3"></i> 总流数
+							<i class="bi bi-diagram-3"></</i> 总流数
 						</div>
 					</div>
 				</div>
@@ -177,7 +179,7 @@
 					<div class="stat-card text-center">
 						<div class="stat-value">{{ formatBytes(stats.total_bytes) }}</div>
 						<div class="stat-label">
-							<i class="bi bi-hdd"></i> 总字节数
+							<i class="bi bi-hdd"></</i> 总字节数
 						</div>
 					</div>
 				</div>
@@ -185,7 +187,7 @@
 					<div class="stat-card text-center">
 						<div class="stat-value">{{ formatNumber(stats.total_packets) }}</div>
 						<div class="stat-label">
-							<i class="bi bi-box-seam"></i> 总包数
+							<i class="bi bi-box-seam"></</i> 总包数
 						</div>
 					</div>
 				</div>
@@ -193,7 +195,7 @@
 					<div class="stat-card text-center">
 						<div class="stat-value">{{ formatNumber(stats.unique_src_ips) }}</div>
 						<div class="stat-label">
-							<i class="bi bi-upload"></i> 源IP数
+							<i class="bi bi-upload"></</i> 源IP数
 						</div>
 					</div>
 				</div>
@@ -201,7 +203,7 @@
 					<div class="stat-card text-center">
 						<div class="stat-value">{{ formatNumber(stats.unique_dst_ips) }}</div>
 						<div class="stat-label">
-							<i class="bi bi-download"></i> 目标IP数
+							<i class="bi bi-download"></</i> 目标IP数
 						</div>
 					</div>
 				</div>
@@ -209,18 +211,17 @@
 					<div class="stat-card text-center">
 						<div class="stat-value">{{ loading ? '...' : refreshCount }}</div>
 						<div class="stat-label">
-							<i class="bi bi-arrow-clockwise"></i> 刷新次数
+							<i class="bi bi-arrow-clockwise"></</i> 刷新次数
 						</div>
 					</div>
 				</div>
 			</div>
-
 			<!-- 图表区域 -->
 			<div class="row mb-4">
 				<div class="col-lg-8">
 					<div class="chart-container">
 						<h5 class="mb-3">
-							<i class="bi bi-graph-up text-primary"></i>
+							<i class="bi bi-graph-up text-primary"></</i>
 							Top IP流量趋势（复用mnet图表设计）
 						</h5>
 						<div v-if="loading" class="loading">
@@ -232,7 +233,7 @@
 				<div class="col-lg-4">
 					<div class="chart-container">
 						<h5 class="mb-3">
-							<i class="bi bi-pie-chart-fill text-success"></i>
+							<i class="bi bi-pie-chart-fill text-success"></</i>
 							协议分布
 						</h5>
 						<div v-if="loading" class="loading">
@@ -242,28 +243,27 @@
 					</div>
 				</div>
 			</div>
-
 			<!-- Top IP表格 -->
 			<div class="row">
 				<div class="col-lg-6">
 					<div class="table-container">
 						<h5 class="mb-3">
-							<i class="bi bi-fire text-danger"></i>
+							<i class="bi bi-fire text-danger"></</i>
 							Top源IP（按字节数）
 						</h5>
 						<div class="table-responsive">
 							<table class="table table-hover">
 								<thead>
 									<tr>
-										<th><i class="bi bi-hash"></i> 排名</th>
-										<th><i class="bi bi-hdd-network"></i> IP地址</th>
-										<th><i class="bi bi-hdd"></i> 字节数</th>
-										<th><i class="bi bi-box-seam"></i> 包数</th>
-										<th><i class="bi bi-diagram-3"></i> 流数</th>
+										<th><<i class="bi bi-hash"></</i> 排名</</th>
+										<th><<i class="bi bi-hdd-network"></</i> IP地址</</th>
+										<th><<i class="bi bi-hdd"></</i> 字节数</</th>
+										<th><<i class="bi bi-box-seam"></</i> 包数</</th>
+										<th><<i class="bi bi-diagram-3"></</i> 流数</</th>
 									</tr>
 								</thead>
 								<tbody>
-									<tr v-for="(item, index) in topSrcIPs" :key="item.ip" class="align-middle">
+									<tr v-for="(item, index) in stats.topSrcIPs" :key="item.ip" class="align-middle">
 										<td><span class="badge bg-primary">{{ index + 1 }}</span></td>
 										<td><code>{{ item.ip }}</code></td>
 										<td>{{ formatBytes(item.total_bytes) }}</td>
@@ -278,22 +278,22 @@
 				<div class="col-lg-6">
 					<div class="table-container">
 						<h5 class="mb-3">
-							<i class="bi bi-bullseye text-success"></i>
+							<i class="bi bi-bullseye text-success"></</i>
 							Top目标IP（按字节数）
 						</h5>
 						<div class="table-responsive">
 							<table class="table table-hover">
 								<thead>
 									<tr>
-										<th><i class="bi bi-hash"></i> 排名</th>
-										<th><i class="bi bi-hdd-network"></i> IP地址</th>
-										<th><i class="bi bi-hdd"></i> 字节数</th>
-										<th><i class="bi bi-box-seam"></i> 包数</th>
-										<th><i class="bi bi-diagram-3"></i> 流数</th>
+										<th><<i class="bi bi-hash"></</i> 排名</</th>
+										<th><<i class="bi bi-hdd-network"></</i> IP地址</</th>
+										<th><<i class="bi bi-hdd"></</i> 字节数</</th>
+										<th><<i class="bi bi-box-seam"></</i> 包数</</th>
+										<th><<i class="bi bi-diagram-3"></</i> 流数</</th>
 									</tr>
 								</thead>
 								<tbody>
-									<tr v-for="(item, index) in topDstIPs" :key="item.ip" class="align-middle">
+									<tr v-for="(item, index) in stats.topDstIPs" :key="item.ip" class="align-middle">
 										<td><span class="badge bg-success">{{ index + 1 }}</span></td>
 										<td><code>{{ item.ip }}</code></td>
 										<td>{{ formatBytes(item.total_bytes) }}</td>
@@ -307,18 +307,15 @@
 				</div>
 			</div>
 		</div>
-
 		<!-- 刷新按钮 -->
 		<button class="btn btn-primary refresh-btn" @click="refreshData" :disabled="loading">
-			<i class="bi bi-arrow-clockwise" :class="{'spin': loading}"></i>
+			<i class="bi bi-arrow-clockwise" :class="{ spin: loading}"></</i>
 			刷新数据
 		</button>
 	</div>
-
 	<script>
 		// API配置
 		const API_BASE_URL = 'http://127.0.0.1:8000/api';
-
 		new Vue({
 			el: '#app',
 			data: {
@@ -328,355 +325,347 @@
 				lastUpdateTime: '--:--:--',
 				showAlert: false,
 				alertMessage: '',
+				refreshTimer: null,
 				stats: {
 					total_flows: 0,
 					total_bytes: 0,
 					total_packets: 0,
 					unique_src_ips: 0,
 					unique_dst_ips: 0,
-					protocol_stats: {},
+					protocol_stats: [],
 					topSrcIPs: [],
 					topDstIPs: [],
-					trendData: [],
-					trendChart: [],
-					protocolChart: [],
-					refreshTimer: null
+					trendData: []
 				},
-				mounted() {
-					this.initCharts();
+				trendChart: null,
+				protocolChart: null
+			},
+			mounted() {
+				this.initCharts();
+				this.loadData();
+				// 设置定时刷新
+				this.refreshTimer = setInterval(() => {
 					this.loadData();
-					// 设置定时刷新
-					this.refreshTimer = setInterval(() => {
-						this.loadData();
-					}, 30000); // 30秒刷新一次
+				}, 30000); // 30秒刷新一次
+			},
+			beforeDestroy() {
+				if (this.refreshTimer) {
+					clearInterval(this.refreshTimer);
+				}
+			},
+			methods: {
+				initCharts() {
+					// 初始化趋势图表（复用mnet设计）
+					this.trendChart = echarts.init(document.getElementById('trendChart'));
+					const trendOption = {
+						title: {
+							text: 'IP流量趋势分析',
+							left: 'center',
+							textStyle: {
+								color: '#333',
+								fontSize: 16
+							}
+						},
+						tooltip: {
+							trigger: 'axis',
+							axisPointer: {
+								type: 'cross',
+								label: {
+									backgroundColor: '#6a7985'
+								}
+							}
+						},
+						legend: {
+							data: [],
+							top: 30
+						},
+						toolbox: {
+							feature: {
+								saveAsImage: {
+									title: '保存为图片'
+								}
+							}
+						},
+						grid: {
+							left: '3%',
+							right: '4%',
+							bottom: '3%',
+							containLabel: true
+						},
+						xAxis: {
+							type: 'category',
+							boundaryGap: false,
+							data: []
+						},
+						yAxis: {
+							type: 'value',
+							axisLabel: {
+								formatter: (value) => {
+									return this.formatBytes(value);
+								}
+							}
+						},
+						series: [
+							{
+								name: '流量趋势',
+								type: 'line',
+								data: this.trendData
+							}
+						]
+					};
+					this.trendChart.setOption(trendOption);
+					// 初始化协议分布图表
+					this.protocolChart = echarts.init(document.getElementById('protocolChart'));
+					const protocolOption = {
+						title: {
+							text: '网络协议分布',
+							left: 'center',
+							textStyle: {
+								color: '#333',
+								fontSize: 16
+							}
+						},
+						tooltip: {
+							trigger: 'item',
+							formatter: '{a} <br/>{b}: {c} ({d}%)'
+						},
+						legend: {
+							orient: 'vertical',
+							left: 10,
+							top: 30
+						},
+						series: [{
+							name: '协议分布',
+							type: 'pie',
+							radius: ['40%', '70%'],
+							avoidLabelOverlap: false,
+							label: {
+								show: false,
+								position: 'center'
+							},
+							emphasis: {
+								label: {
+									show: true,
+									fontSize: '18',
+									fontWeight: 'bold'
+								}
+							},
+							labelLine: {
+								show: false
+							},
+							data: []
+						}]
+					};
+					this.protocolChart.setOption(protocolOption);
+					// 响应式调整
+					window.addEventListener('resize', () => {
+						this.trendChart && this.trendChart.resize();
+						this.protocolChart && this.protocolChart.resize();
+					});
 				},
-				beforeDestroy() {
-					if (this.refreshTimer) {
-						clearInterval(this.refreshTimer);
+				async loadData() {
+					this.loading = true;
+					this.apiStatus = true;
+					try {
+						// 并行加载所有数据
+						const [srcResponse, dstResponse, historyResponse, realtimeResponse] = await Promise.all([
+							axios.get(`${API_BASE_URL}/stats_ip/total?type=src&limit=10`),
+							axios.get(`${API_BASE_URL}/stats_ip/total?type=dst&limit=10`),
+							axios.get(`${API_BASE_URL}/stats_ip/date_history?type=src&days=7&top_limit=5`),
+							axios.get(`${API_BASE_URL}/realtime/flows`)
+						]);
+						// 处理Top源IP数据
+						if (srcResponse.data.success) {
+							this.stats.topSrcIPs = srcResponse.data.data;
+						}
+						// 处理Top目标IP数据
+						if (dstResponse.data.success) {
+							this.stats.topDstIPs = dstResponse.data.data;
+						}
+						// 处理历史趋势数据
+						if (historyResponse.data.success && historyResponse.data.data.length > 0) {
+							this.updateTrendChart(historyResponse.data.data);
+						} else {
+							// 无历史数据时显示提示
+							this.trendChart.setOption({
+								graphic: [{
+									type: 'text',
+									left: 'center',
+									top: '50%',
+									style: { text: '暂无历史数据', fontSize: 16, color: '#999' }
+								}]
+							});
+						}
+						// 处理实时数据
+						if (realtimeResponse.data.success) {
+							const realtimeStats = this.calculateRealtimeStats(realtimeResponse.data.data);
+							// 合并实时统计数据（避免覆盖topSrcIPs/topDstIPs）
+							this.stats = { ...this.stats, ...realtimeStats };
+							this.updateProtocolChart();
+						}
+						this.lastUpdateTime = new Date().toLocaleTimeString();
+						this.refreshCount++;
+					} catch (error) {
+						console.error('数据加载失败:', error);
+						this.apiStatus = false;
+						// 增强错误提示
+						if (error.response) {
+							this.showAlertMessage(`API请求失败（状态码：${error.response.status}）`);
+						} else {
+							this.showAlertMessage('无法连接到API服务器，请检查服务器状态');
+						}
+					} finally {
+						this.loading = false;
 					}
 				},
-				methods: {
-					initCharts() {
-						// 初始化趋势图表（复用mnet设计）
-						this.trendChart = echarts.init(document.getElementById('trendChart'));
-						const trendOption = {
-							title: {
-								text: 'IP流量趋势分析',
-								left: 'center',
-								textStyle: {
-									color: '#333',
-									fontSize: 16
-								}
-							},
-							tooltip: {
-								trigger: 'axis',
-								axisPointer: {
-									type: 'cross',
-									label: {
-										backgroundColor: '#6a7985'
-									}
-								}
-							},
-							legend: {
-								data: [],
-								top: 30
-							},
-							toolbox: {
-								feature: {
-									saveAsImage: {
-										title: '保存为图片'
-									}
-								}
-							},
-							grid: {
-								left: '3%',
-								right: '4%',
-								bottom: '3%',
-								containLabel: true
-							},
-							xAxis: {
-								type: 'category',
-								boundaryGap: false,
-								data: []
-							},
-							yAxis: {
-								type: 'value',
-								axisLabel: {
-									formatter: (value) => {
-										return this.formatBytes(value);
-									}
-								}
-							},
-							seriesz: [
-								{
-									name: '流量趋势',
-									type: 'line',
-									data: this.trendData
-								}
-							]
-						};
-						this.trendChart.setOption(trendOption);
-
-						// 初始化协议分布图表
-						this.protocolChart = echarts.init(document.getElementById('protocolChart'));
-						const protocolOption = {
-							title: {
-								text: '网络协议分布',
-								left: 'center',
-								textStyle: {
-									color: '#333',
-									fontSize: 16
-								}
-							},
-							tooltip: {
-								trigger: 'item',
-								formatter: '{a} <br/>{b}: {c} ({d}%)'
-							},
-							legend: {
-								orient: 'vertical',
-								left: 10,
-								top: 30
-							},
-							series: [{
-								name: '协议分布',
-								type: 'pie',
-								radius: ['40%', '70%'],
-								avoidLabelOverlap: false,
-								label: {
-									show: false,
-									position: 'center'
-								},
-								emphasis: {
-									label: {
-										show: true,
-										fontSize: '18',
-										fontWeight: 'bold'
-									}
-								},
-								labelLine: {
-									show: false
-								},
-								data: []
-							}]
-						};
-						this.protocolChart.setOption(protocolOption);
-
-						// 响应式调整
-						window.addEventListener('resize', () => {
-							this.trendChart && this.trendChart.resize();
-							this.protocolChart && this.protocolChart.resize();
-						});
-					},
-
-					async loadData() {
-						this.loading = true;
-						this.apiStatus = true;
-
-						try {
-							// 并行加载所有数据
-							const [srcResponse, dstResponse, historyResponse, realtimeResponse] = await Promise.all([
-								axios.get(`${API_BASE_URL}/stats_ip/total?type=src&limit=10`),
-								axios.get(`${API_BASE_URL}/stats_ip/total?type=dst&limit=10`),
-								axios.get(`${API_BASE_URL}/stats_ip/date_history?type=src&days=7&top_limit=5`),
-								axios.get(`${API_BASE_URL}/realtime/flows`)
-							]);
-
-							// 处理Top源IP数据
-							if (srcResponse.data.success) {
-								this.topSrcIPs = srcResponse.data.data;
-							}
-
-							// 处理Top目标IP数据
-							if (dstResponse.data.success) {
-								this.topDstIPs = dstResponse.data.data;
-							}
-
-							// 处理历史趋势数据
-							if (historyResponse.data.success && historyResponse.data.data.length > 0) {
-								this.updateTrendChart(historyResponse.data.data);
-							}
-
-							// 处理实时数据
-							if (realtimeResponse.data.success) {
-								this.stats = this.calculateRealtimeStats(realtimeResponse.data.data);
-								this.updateProtocolChart();
-							}
-
-							this.lastUpdateTime = new Date().toLocaleTimeString();
-							this.refreshCount++;
-
-						} catch (error) {
-							console.error('数据加载失败:', error);
-							this.apiStatus = false;
-							this.showAlertMessage('无法连接到API服务器，请检查服务器状态');
-						} finally {
-							this.loading = false;
-						}
-					},
-
-					calculateRealtimeStats(flows) {
-						if (!flows || flows.length === 0) {
-							return {
-								total_flows: 0,
-								total_bytes: 0,
-								total_packets: 0,
-								unique_src_ips: 0,
-								unique_dst_ips: 0,
-								protocol_stats: {}
-							};
-						}
-
-						const stats = {
-							total_flows: flows.length,
+				calculateRealtimeStats(flows) {
+					if (!flows || flows.length === 0) {
+						return {
+							total_flows: 0,
 							total_bytes: 0,
 							total_packets: 0,
-							unique_src_ips: new Set(flows.map(f => f.src_ip)).size,
-							unique_dst_ips: new Set(flows.map(f => f.dst_ip)).size,
-							protocol_stats: {}
+							unique_src_ips: 0,
+							unique_dst_ips: 0,
+							protocol_stats: []
 						};
-
-						const protocolMap = new Map();
-						const protocolNames = {
-							1: 'ICMP',
-							6: 'TCP',
-							17: 'UDP',
-							58: 'ICMPv6'
-						};
-
-						flows.forEach(flow => {
-							stats.total_bytes += flow.bytes || 0;
-							stats.total_packets += flow.packets || 0;
-
-							const protocol = flow.protocol || 0;
-							if (!protocolMap.has(protocol)) {
-								protocolMap.set(protocol, { flows: 0, bytes: 0 });
-							}
-							protocolMap.get(protocol).flows++;
-							protocolMap.get(protocol).bytes += flow.bytes || 0;
-						});
-
-						stats.protocol_stats = Array.from(protocolMap.entries()).map(([protocol, data]) => ({
-							protocol: protocol,
-							name: protocolNames[protocol] || `Protocol ${protocol}`,
-							flows: data.flows,
-							bytes: data.bytes
-						}));
-
-						return stats;
-					},
-
-					updateTrendChart(historyData) {
-						const ips = historyData.map(item => item.ip);
-						const dates = [];
-						const series = [];
-
-						// 收集所有日期
-						const allDates = new Set();
-						historyData.forEach(ipData => {
-							ipData.history.forEach(h => {
-								allDates.add(h.date);
-							});
-						});
-
-						const sortedDates = Array.from(allDates).sort();
-
-						// 为每个IP创建数据系列
-						ips.forEach((ip, index) => {
-							const ipData = historyData.find(item => item.ip === ip);
-							const data = [];
-
-							sortedDates.forEach(date => {
-								const historyItem = ipData.history.find(h => h.date === date);
-								data.push(historyItem ? historyItem.bytes : 0);
-							});
-
-							const colors = ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de'];
-
-							series.push({
-								name: ip,
-								type: 'line',
-								stack: 'Total',
-								areaStyle: {
-									opacity: 0.7
-								},
-								emphasis: {
-									focus: 'series'
-								},
-								smooth: true,
-								data: data,
-								itemStyle: {
-									color: colors[index % colors.length]
-								}
-							});
-						});
-
-						const option = {
-							legend: {
-								data: ips,
-								top: 30
-							},
-							xAxis: {
-								data: sortedDates,
-								axisLabel: {
-									rotate: 45
-								}
-							},
-							series: series
-						};
-
-						this.trendChart.setOption(option);
-					},
-
-					updateProtocolChart() {
-						const protocolData = this.stats.protocol_stats.map(item => ({
-							name: item.name,
-							value: item.bytes
-						}));
-
-						const option = {
-							legend: {
-								data: protocolData.map(item => item.name)
-							},
-							series: [{
-								data: protocolData
-							}]
-						};
-
-						this.protocolChart.setOption(option);
-					},
-
-					refreshData() {
-						this.loadData();
-					},
-
-					showAlertMessage(message) {
-						this.alertMessage = message;
-						this.showAlert = true;
-						setTimeout(() => {
-							this.showAlert = false;
-						}, 5000);
-					},
-
-					formatBytes(bytes) {
-						if (bytes === 0) return '0 B';
-						const k = 1024;
-						const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-						const i = Math.floor(Math.log(bytes) / Math.log(k));
-						return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-					},
-
-					formatNumber(num) {
-						return new Intl.NumberFormat().format(num);
 					}
+					const stats = {
+						total_flows: flows.length,
+						total_bytes: 0,
+						total_packets: 0,
+						unique_src_ips: new Set(flows.map(f => f.src_ip)).size,
+						unique_dst_ips: new Set(flows.map(f => f.dst_ip)).size,
+						protocol_stats: []
+					};
+					const protocolMap = new Map();
+					const protocolNames = {
+						1: 'ICMP',
+						6: 'TCP',
+						17: 'UDP',
+						58: 'ICMPv6'
+					};
+					flows.forEach(flow => {
+						stats.total_bytes += flow.bytes || 0;
+						stats.total_packets += flow.packets || 0;
+						const protocol = flow.protocol || 0;
+						if (!protocolMap.has(protocol)) {
+							protocolMap.set(protocol, { flows: 0, bytes: 0 });
+						}
+						protocolMap.get(protocol).flows++;
+						protocolMap.get(protocol).bytes += flow.bytes || 0;
+					});
+					stats.protocol_stats = Array.from(protocolMap.entries()).map(([protocol, data]) => ({
+						protocol: protocol,
+						name: protocolNames[protocol] || `Protocol ${protocol}`,
+						flows: data.flows,
+						bytes: data.bytes
+					}));
+					return stats;
+				},
+				updateTrendChart(historyData) {
+					const ips = historyData.map(item => item.ip) || [];
+					const allDates = new Set();
+					historyData.forEach(ipData => {
+						ipData.history.forEach(h => allDates.add(h.date));
+					});
+					const sortedDates = Array.from(allDates).sort() || [];
+
+					// 若无数据，显示默认提示
+					if (sortedDates.length === 0) {
+						this.trendChart.setOption({
+							xAxis: { data: [] },
+							series: [],
+							graphic: [{
+								type: 'text',
+								left: 'center',
+								top: '50%',
+								style: { text: '暂无历史数据', fontSize: 16, color: '#999' }
+							}]
+						});
+						return;
+					}
+
+					const series = [];
+					// 为每个IP创建数据系列
+					ips.forEach((ip, index) => {
+						const ipData = historyData.find(item => item.ip === ip);
+						const data = [];
+						sortedDates.forEach(date => {
+							const historyItem = ipData.history.find(h => h.date === date);
+							data.push(historyItem ? historyItem.bytes : 0);
+						});
+						const colors = ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de'];
+						series.push({
+							name: ip,
+							type: 'line',
+							stack: 'Total',
+							areaStyle: {
+								opacity: 0.7
+							},
+							emphasis: {
+								focus: 'series'
+							},
+							smooth: true,
+							data: data,
+							itemStyle: {
+								color: colors[index % colors.length]
+							}
+						});
+					});
+					const option = {
+						legend: {
+							data: ips,
+							top: 30
+						},
+						xAxis: {
+							data: sortedDates,
+							axisLabel: {
+								rotate: 45
+							}
+						},
+						series: series,
+						graphic: [] // 清除无数据提示
+					};
+					this.trendChart.setOption(option);
+				},
+				updateProtocolChart() {
+					const protocolData = this.stats.protocol_stats.map(item => ({
+						name: item.name,
+						value: item.bytes
+					}));
+					const option = {
+						legend: {
+							data: protocolData.map(item => item.name)
+						},
+						series: [{
+							data: protocolData
+						}]
+					};
+					this.protocolChart.setOption(option);
+				},
+				refreshData() {
+					this.loadData();
+				},
+				showAlertMessage(message) {
+					this.alertMessage = message;
+					this.showAlert = true;
+					setTimeout(() => {
+						this.showAlert = false;
+					}, 5000);
+				},
+				formatBytes(bytes) {
+					if (isNaN(bytes) || bytes < 0) return '0 B';
+					if (bytes === 0) return '0 B';
+					const k = 1024;
+					const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+					const i = Math.floor(Math.log(bytes) / Math.log(k));
+					return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+				},
+				formatNumber(num) {
+					return new Intl.NumberFormat().format(num);
 				}
 			}
 		});
 	</script>
-
-	<style>
-		.spin {
-			animation: spin 1s linear infinite;
-		}
-	</style>
 </body>
 </html>
