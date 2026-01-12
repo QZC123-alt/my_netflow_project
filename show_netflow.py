@@ -1,7 +1,12 @@
 # -*- coding=utf-8 -*-
 
 import sqlite3
+import sys
+import os 
 from matplotlib import pyplot as plt
+
+from data_collection.collector_v9 import netflowdb
+
 
 # 协议名称映射表
 protocol_map = {'6/22': 'SSH',
@@ -15,7 +20,7 @@ protocol_map = {'6/22': 'SSH',
                 '17/5355': 'LLMNR'}
 
 # 连接数据库
-conn = sqlite3.connect(DATABASE_PATH)
+conn = sqlite3.connect(netflowdb)
 cursor = conn.cursor()
 
 # 找到唯一的目的端口和协议
