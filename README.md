@@ -53,13 +53,34 @@ Python
 
 ## 依赖清单（requirements.txt）
 ```txt
-pandas==2.3.3
-scikit-learn==1.8.0
-joblib==1.3.2
-numpy==2.3.4
-scapy==2.5.0
-pyshark==0.5.3
-netaddr==0.8.0
-matplotlib==3.7.0
-plotly==5.16.0
-PyMySQL==1.1.0
+appdirs         1.4.4
+asgiref         3.11.0
+contourpy       1.3.3
+cycler          0.12.1
+Django          6.0.1
+fonttools       4.61.1
+joblib          1.3.2
+kiwisolver      1.4.9
+lxml            6.0.2
+matplotlib      3.7.0
+netaddr         0.8.0
+numpy           2.3.4
+packaging       25.0
+pandas          2.3.3
+pillow          12.1.0
+pip             25.3
+plotly          5.16.0
+py              1.11.0
+PyMySQL         1.1.0
+pyparsing       3.3.1
+pyshark         0.5.3
+python-dateutil 2.9.0.post0
+pytz            2025.2
+scapy           2.5.0
+scikit-learn    1.8.0
+scipy           1.16.3
+six             1.17.0
+sqlparse        0.5.5
+tenacity        9.1.2
+threadpoolctl   3.6.0
+tzdata          2025.2
