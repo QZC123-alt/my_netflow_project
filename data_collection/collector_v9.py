@@ -177,6 +177,7 @@ def createdb():
         input_interface_id int, 
         in_bytes int,
         out_bytes int,  -- 新增字段
+        in_packets INTEGER NOT NULL,
         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP  -- 必带字段
     )""")
     
@@ -191,27 +192,30 @@ def netflowdb(netflow_dict):
     conn = sqlite3.connect(DATABASE_PATH)
     cursor = conn.cursor()
 
-    # 2. 修改插入SQL：新增timestamp字段
-    sql = """insert into netflow (
-        src_ip, dst_ip, protocol, src_port, dst_port, 
-        input_interface_id, in_bytes, out_bytes, timestamp  -- 新增timestamp字段
-    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)"""  # 多一个占位符
-    
-    # 3. 插入参数：最后补充当前时间作为timestamp
+    # 1. 修正SQL：字段数=占位符数（10个字段→10个?）
+    sql = """
+    insert into netflow (
+        src_ip, dst_ip, protocol, src_port, dst_port,
+        input_interface_id, in_bytes, out_bytes, in_packets, timestamp
+    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """  # 10个占位符，与字段数一致
+
+    # 2. 修正参数：确保字段与netflow_dict的键对应（比如OUT_BYTES的键是否正确）
     cursor.execute(sql, (
-        netflow_dict['IPV4_SRC_ADDR'],
-        netflow_dict['IPV4_DST_ADDR'],
-        netflow_dict['PROTOCOL'],
-        netflow_dict['L4_SRC_PORT'],
-        netflow_dict['L4_DST_PORT'],
-        netflow_dict['INPUT_INTERFACE_ID'],
-        netflow_dict['IN_BYTES'],
-        netflow_dict.get('OUT_BYTES', 0),  # 无out_bytes时默认0
-        datetime.datetime.now()  # 新增：写入当前时间作为timestamp
-    ))
+        netflow_dict['IPV4_SRC_ADDR'],    # 对应src_ip
+        netflow_dict['IPV4_DST_ADDR'],    # 对应dst_ip
+        netflow_dict['PROTOCOL'],         # 对应protocol
+        netflow_dict['L4_SRC_PORT'],      # 对应src_port
+        netflow_dict['L4_DST_PORT'],      # 对应dst_port
+        netflow_dict['INPUT_INTERFACE_ID'],# 对应input_interface_id
+        netflow_dict['IN_BYTES'],         # 对应in_bytes
+        netflow_dict.get('OUT_BYTES', 0), # 对应out_bytes（无则默认0）
+        netflow_dict.get('IN_PACKETS', 0),# 对应in_packets（无则默认0）
+        datetime.datetime.now()           # 对应timestamp
+    ))  # 10个参数，与占位符数一致
 
     conn.commit()
-    conn.close()  # 建议增加关闭连接，避免资源泄漏
+    conn.close()  # 关闭连接，避免资源泄漏
 
 
 class IP:

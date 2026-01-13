@@ -147,7 +147,7 @@
 		<nav class="navbar navbar-expand-lg navbar-light">
 			<div class="container-fluid">
 				<a class="navbar-brand" href="#">
-					<i class="bi bi-lightning-charge-fill text-primary"></</i>
+					<i class="bi bi-lightning-charge-fill text-primary"></i>
 					<strong>NetFlow监控仪表板</strong>
 				</a>
 				<div class="navbar-text">
@@ -171,7 +171,7 @@
 					<div class="stat-card text-center">
 						<div class="stat-value">{{ formatNumber(stats.total_flows) }}</div>
 						<div class="stat-label">
-							<i class="bi bi-diagram-3"></</i> 总流数
+							<i class="bi bi-diagram-3"></i> 总流数
 						</div>
 					</div>
 				</div>
@@ -179,7 +179,7 @@
 					<div class="stat-card text-center">
 						<div class="stat-value">{{ formatBytes(stats.total_bytes) }}</div>
 						<div class="stat-label">
-							<i class="bi bi-hdd"></</i> 总字节数
+							<i class="bi bi-hdd"></i> 总字节数
 						</div>
 					</div>
 				</div>
@@ -187,7 +187,7 @@
 					<div class="stat-card text-center">
 						<div class="stat-value">{{ formatNumber(stats.total_packets) }}</div>
 						<div class="stat-label">
-							<i class="bi bi-box-seam"></</i> 总包数
+							<i class="bi bi-box-seam"></i> 总包数
 						</div>
 					</div>
 				</div>
@@ -195,7 +195,7 @@
 					<div class="stat-card text-center">
 						<div class="stat-value">{{ formatNumber(stats.unique_src_ips) }}</div>
 						<div class="stat-label">
-							<i class="bi bi-upload"></</i> 源IP数
+							<i class="bi bi-upload"></i> 源IP数
 						</div>
 					</div>
 				</div>
@@ -203,7 +203,7 @@
 					<div class="stat-card text-center">
 						<div class="stat-value">{{ formatNumber(stats.unique_dst_ips) }}</div>
 						<div class="stat-label">
-							<i class="bi bi-download"></</i> 目标IP数
+							<i class="bi bi-download"></i> 目标IP数
 						</div>
 					</div>
 				</div>
@@ -211,7 +211,7 @@
 					<div class="stat-card text-center">
 						<div class="stat-value">{{ loading ? '...' : refreshCount }}</div>
 						<div class="stat-label">
-							<i class="bi bi-arrow-clockwise"></</i> 刷新次数
+							<i class="bi bi-arrow-clockwise"></i> 刷新次数
 						</div>
 					</div>
 				</div>
@@ -233,7 +233,7 @@
 				<div class="col-lg-4">
 					<div class="chart-container">
 						<h5 class="mb-3">
-							<i class="bi bi-pie-chart-fill text-success"></</i>
+							<i class="bi bi-pie-chart-fill text-success"></i>
 							协议分布
 						</h5>
 						<div v-if="loading" class="loading">
@@ -248,18 +248,18 @@
 				<div class="col-lg-6">
 					<div class="table-container">
 						<h5 class="mb-3">
-							<i class="bi bi-fire text-danger"></</i>
+							<i class="bi bi-fire text-danger"></i>
 							Top源IP（按字节数）
 						</h5>
 						<div class="table-responsive">
 							<table class="table table-hover">
 								<thead>
 									<tr>
-										<th><<i class="bi bi-hash"></</i> 排名</</th>
-										<th><<i class="bi bi-hdd-network"></</i> IP地址</</th>
-										<th><<i class="bi bi-hdd"></</i> 字节数</</th>
-										<th><<i class="bi bi-box-seam"></</i> 包数</</th>
-										<th><<i class="bi bi-diagram-3"></</i> 流数</</th>
+										<th><<i class="bi bi-hash"></i> 排名</</th>
+										<th><<i class="bi bi-hdd-network"></i> IP地址</</th>
+										<th><<i class="bi bi-hdd"></i> 字节数</</th>
+										<th><<i class="bi bi-box-seam"></i> 包数</</th>
+										<th><<i class="bi bi-diagram-3"></i> 流数</</th>
 									</tr>
 								</thead>
 								<tbody>
@@ -278,18 +278,18 @@
 				<div class="col-lg-6">
 					<div class="table-container">
 						<h5 class="mb-3">
-							<i class="bi bi-bullseye text-success"></</i>
+							<i class="bi bi-bullseye text-success"></i>
 							Top目标IP（按字节数）
 						</h5>
 						<div class="table-responsive">
 							<table class="table table-hover">
 								<thead>
 									<tr>
-										<th><<i class="bi bi-hash"></</i> 排名</</th>
+										<th><<i class="bi bi-hash"></i> 排名</</th>
 										<th><<i class="bi bi-hdd-network"></</i> IP地址</</th>
-										<th><<i class="bi bi-hdd"></</i> 字节数</</th>
-										<th><<i class="bi bi-box-seam"></</i> 包数</</th>
-										<th><<i class="bi bi-diagram-3"></</i> 流数</</th>
+										<th><<i class="bi bi-hdd"></i> 字节数</</th>
+										<th><<i class="bi bi-box-seam"></i> 包数</</th>
+										<th><<i class="bi bi-diagram-3"></i> 流数</</th>
 									</tr>
 								</thead>
 								<tbody>
@@ -471,7 +471,7 @@
 						const [srcResponse, dstResponse, historyResponse, realtimeResponse] = await Promise.all([
 							axios.get(`${API_BASE_URL}/stats_ip/total?type=src&limit=10`),
 							axios.get(`${API_BASE_URL}/stats_ip/total?type=dst&limit=10`),
-							axios.get(`${API_BASE_URL}/stats_ip/date_history?type=src&days=7&top_limit=5`),
+							axios.get(`${API_BASE_URL}/stats_ip/date_history?type=src&hours=168&top_n=5`),
 							axios.get(`${API_BASE_URL}/realtime/flows`)
 						]);
 						// 处理Top源IP数据
@@ -639,10 +639,17 @@
 						},
 						series: [{
 							data: protocolData
-						}]
+						}],
+						graphic: protocolData.length === 0 ? [{ // 无数据时显示提示
+							type: 'text',
+							left: 'center',
+							top: '50%',
+							style: { text: '暂无协议数据', fontSize: 16, color: '#999' }
+						}] : []
 					};
 					this.protocolChart.setOption(option);
 				},
+
 				refreshData() {
 					this.loadData();
 				},
@@ -654,7 +661,7 @@
 					}, 5000);
 				},
 				formatBytes(bytes) {
-					if (isNaN(bytes) || bytes < 0) return '0 B';
+					if (isNaN(bytes) || bytes < 0 || bytes === undefined) return '0 B'; // 加undefined容错
 					if (bytes === 0) return '0 B';
 					const k = 1024;
 					const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -662,6 +669,7 @@
 					return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 				},
 				formatNumber(num) {
+					if (isNaN(num) || num === undefined) return '0'; // 加容错
 					return new Intl.NumberFormat().format(num);
 				}
 			}

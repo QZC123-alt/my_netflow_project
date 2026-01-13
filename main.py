@@ -181,14 +181,18 @@ def start_simple_monitor():
         print(f"启动监控失败: {e}")
 
 def start_web_interface():
-    """暂时跳过Web界面"""
-    print("Web interface skipped for now")
-    pass
-    """启动Web界面（来自mnet）"""
-    '''  os.chdir('web_interface')
-    import subprocess
+    """启动Web界面"""
     print("启动Web界面...")
-    subprocess.run(['python', 'manage.py', 'runserver', '0.0.0.0:8000'])'''
+    try:
+        # 方法1：直接启动Flask服务器
+        from api.flask_server import app
+        
+        print("Web服务器启动中...")
+        # 启动Flask服务器，禁用reloader避免在子线程中出现问题
+        app.run(host='0.0.0.0', port=8000, debug=False, use_reloader=False)
+        
+    except Exception as e:
+        print(f"启动Web界面失败: {e}")
 
 def main():
     """主函数"""
@@ -220,7 +224,7 @@ def main():
     
     print("所有服务已启动！")
     print("NetFlow服务器监听端口: 9995")
-    'print("Web界面: http://localhost:8000")'
+    print("Web界面: http://localhost:8000")
     print("监控显示: 每30秒更新统计")
     print("按 Ctrl+C 退出")
     print("=" * 50)
