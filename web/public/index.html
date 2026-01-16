@@ -216,12 +216,20 @@
 					</div>
 				</div>
 			</div>
+			<!-- 在统计卡片区域下方添加总数据导出按钮 -->
+			<div class="row mb-3">
+				<div class="col-12 text-right">
+					<button class="btn btn-success" @click="exportAllStats">
+						<i class="bi bi-download"></i> 导出所有统计数据
+					</button>
+				</div>
+			</div>
 			<!-- 图表区域 -->
 			<div class="row mb-4">
 				<div class="col-lg-8">
 					<div class="chart-container">
 						<h5 class="mb-3">
-							<i class="bi bi-graph-up text-primary"></</i>
+							<i class="bi bi-graph-up text-primary"></i>
 							Top IP流量趋势（复用mnet图表设计）
 						</h5>
 						<div v-if="loading" class="loading">
@@ -243,6 +251,19 @@
 					</div>
 				</div>
 			</div>
+			<!-- 在图表区域添加导出按钮 -->
+			<div class="row mb-2">
+				<div class="col-lg-8 text-right">
+					<button class="btn btn-outline-success" @click="exportTrendData">
+						<i class="bi bi-download"></i> 导出流量趋势数据
+					</button>
+				</div>
+				<div class="col-lg-4 text-right">
+					<button class="btn btn-outline-success" @click="exportProtocolData">
+						<i class="bi bi-download"></i> 导出协议分布数据
+					</button>
+				</div>
+			</div>
 			<!-- Top IP表格 -->
 			<div class="row">
 				<div class="col-lg-6">
@@ -255,11 +276,11 @@
 							<table class="table table-hover">
 								<thead>
 									<tr>
-										<th><<i class="bi bi-hash"></i> 排名</</th>
-										<th><<i class="bi bi-hdd-network"></i> IP地址</</th>
-										<th><<i class="bi bi-hdd"></i> 字节数</</th>
-										<th><<i class="bi bi-box-seam"></i> 包数</</th>
-										<th><<i class="bi bi-diagram-3"></i> 流数</</th>
+										<th><i class="bi bi-hash"></i> 排名</th>
+										<th><i class="bi bi-hdd-network"></i> IP地址</th>
+										<th><i class="bi bi-hdd"></i> 字节数</th>
+										<th><i class="bi bi-box-seam"></i> 包数</th>
+										<th><i class="bi bi-diagram-3"></i> 流数</th>
 									</tr>
 								</thead>
 								<tbody>
@@ -275,6 +296,11 @@
 						</div>
 					</div>
 				</div>
+				<div class="mt-3 text-right">
+					<button class="btn btn-outline-success" @click="exportTableData('src')">
+						<i class="bi bi-download"></i> 导出Top源IP数据
+					</button>
+				</div>
 				<div class="col-lg-6">
 					<div class="table-container">
 						<h5 class="mb-3">
@@ -285,11 +311,11 @@
 							<table class="table table-hover">
 								<thead>
 									<tr>
-										<th><<i class="bi bi-hash"></i> 排名</</th>
-										<th><<i class="bi bi-hdd-network"></</i> IP地址</</th>
-										<th><<i class="bi bi-hdd"></i> 字节数</</th>
-										<th><<i class="bi bi-box-seam"></i> 包数</</th>
-										<th><<i class="bi bi-diagram-3"></i> 流数</</th>
+										<th><i class="bi bi-hash"></i> 排名</th>
+										<th><i class="bi bi-hdd-network"></i> IP地址</th>
+										<th><i class="bi bi-hdd"></i> 字节数</th>
+										<th><i class="bi bi-box-seam"></i> 包数</th>
+										<th><i class="bi bi-diagram-3"></i> 流数</th>
 									</tr>
 								</thead>
 								<tbody>
@@ -305,11 +331,16 @@
 						</div>
 					</div>
 				</div>
+				<div class="mt-3 text-right">
+					<button class="btn btn-outline-success" @click="exportTableData('dst')">
+						<i class="bi bi-download"></i> 导出Top目标IP数据
+					</button>
+				</div>
 			</div>
 		</div>
 		<!-- 刷新按钮 -->
 		<button class="btn btn-primary refresh-btn" @click="refreshData" :disabled="loading">
-			<i class="bi bi-arrow-clockwise" :class="{ spin: loading}"></</i>
+			<i class="bi bi-arrow-clockwise" :class="{ spin: loading}"></i>
 			刷新数据
 		</button>
 	</div>
@@ -649,7 +680,6 @@
 					};
 					this.protocolChart.setOption(option);
 				},
-
 				refreshData() {
 					this.loadData();
 				},
@@ -671,8 +701,54 @@
 				formatNumber(num) {
 					if (isNaN(num) || num === undefined) return '0'; // 加容错
 					return new Intl.NumberFormat().format(num);
+				},
+				  // 导出所有统计数据
+                exportAllStats() {
+					this.downloadFile('/api/export/all_stats', 'netflow_all_stats.csv');
+				},
+
+				// 导出表格数据
+				exportTableData(type) {
+					this.downloadFile(`/api/export/top_ips?type=${type}`, `netflow_top_${type}_ips.csv`);
+				},
+
+				// 导出趋势图数据
+				exportTrendData() {
+					this.downloadFile('/api/export/trend_data', 'netflow_trend_data.csv');
+				},
+
+				// 导出协议分布数据
+				exportProtocolData() {
+					this.downloadFile('/api/export/protocol_data', 'netflow_protocol_data.csv');
+				},
+
+				// 下载文件通用方法
+				downloadFile(url, filename) {
+					this.loading = true;
+					axios({
+						url: url,
+						method: 'GET',
+						responseType: 'blob', // 重要：指定响应类型为二进制
+					}).then(response => {
+						// 创建下载链接
+						const url = window.URL.createObjectURL(new Blob([response.data]));
+						const link = document.createElement('a');
+						link.href = url;
+						link.setAttribute('download', filename);
+						document.body.appendChild(link);
+						link.click();
+						document.body.removeChild(link);
+						window.URL.revokeObjectURL(url);
+						this.showAlertMessage(`成功导出数据至 ${filename}`);
+					}).catch(error => {
+						console.error('导出失败:', error);
+						this.showAlertMessage('数据导出失败，请重试');
+					}).finally(() => {
+						this.loading = false;
+					});
 				}
 			}
+			
 		});
 	</script>
 </body>
