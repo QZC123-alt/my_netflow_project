@@ -1,172 +1,511 @@
 ﻿#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-import sqlite3
-import time
-import threading
-import logging
+# -*- coding=utf-8 -*-
 import sys
 import os
+import time
+import sqlite3
+import logging
+from logging.handlers import RotatingFileHandler
+import joblib
+import numpy as np
+from threading import Thread
+import smtplib
+from email.mime.text import MIMEText
+from email.header import Header
 
-# 添加项目路径
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+# 项目根目录
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(PROJECT_ROOT)
+try:
+    from config import DATABASE_PATH, CHECK_INTERVAL
+except ImportError:
+    DATABASE_PATH = "netflow.db"
+    CHECK_INTERVAL = 5
 
-from anomaly_detection.simple_detector import SimpleAnomalyDetector
+# ========== 日志升级核心 ==========
+# 日志配置（升级：输出详细的文件名/行号+函数名 + 日志文件轮转）
+def setup_logging():
+    """初始化日志配置（封装为函数，便于复用和维护）"""
+    # 定义日志格式：包含 时间 + 日志器名 + 级别 + 文件名 + 行号 + 函数名 + 日志内容
+    log_format = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(funcName)s() - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'  # 统一时间格式
+    )
+    
+    # 1. 控制台处理器（输出到stdout）
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(log_format)
+    console_handler.setLevel(logging.INFO)  # 控制台只输出INFO及以上
+    
+    # 2. 文件处理器（轮转日志，避免文件过大）
+    # 单个日志文件最大50MB，保留5个备份
+    file_handler = RotatingFileHandler(
+        "run.log",
+        maxBytes=50 * 1024 * 1024,  # 50MB
+        backupCount=5,              # 最多保留5个备份
+        encoding='utf-8'            # 避免中文乱码
+    )
+    file_handler.setFormatter(log_format)
+    file_handler.setLevel(logging.DEBUG)  # 文件中保留DEBUG及以上（便于排查问题）
+    
+    # 配置根日志器
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)  # 根级别设为DEBUG（向下兼容）
+    root_logger.handlers.clear()  # 清空默认handler，避免重复输出
+    root_logger.addHandler(console_handler)
+    root_logger.addHandler(file_handler)
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# 执行日志初始化
+setup_logging()
+# ========== 日志升级结束 ==========
+
+# KDD 41维特征列（和run_system.py完全一致）
+NETFLOW_FEATURE_COLUMNS = [
+    'duration', 'protocol_type', 'service', 'flag', 'src_bytes',
+    'dst_bytes', 'land', 'wrong_fragment', 'urgent', 'hot',
+    'num_failed_logins', 'logged_in', 'num_compromised', 'root_shell',
+    'su_attempted', 'num_root', 'num_file_creations', 'num_shells',
+    'num_access_files', 'num_outbound_cmds', 'is_host_login',
+    'is_guest_login', 'count', 'srv_count', 'serror_rate',
+    'srv_serror_rate', 'rerror_rate', 'srv_rerror_rate', 'same_srv_rate',
+    'diff_srv_rate', 'srv_diff_host_rate', 'dst_host_count',
+    'dst_host_srv_count', 'dst_host_same_srv_rate', 'dst_host_diff_srv_rate',
+    'dst_host_same_src_port_rate', 'dst_host_srv_diff_host_rate',
+    'dst_host_serror_rate', 'dst_host_srv_serror_rate', 'dst_host_rerror_rate',
+    'dst_host_srv_rerror_rate'
+]
+
+
+# 全局加载模型（只加载一次）
+try:
+    model_path = os.path.join(PROJECT_ROOT, "models", "netflow_model_merge.pkl")
+    scaler_path = os.path.join(PROJECT_ROOT, "models", "scaler.pkl")
+    logging.info(f"开始加载模型 | 模型路径：{model_path} | 标准化器路径：{scaler_path}")
+    
+    model = joblib.load(model_path)
+    scaler = joblib.load(scaler_path)
+    
+    if hasattr(model, 'classes_'):
+        logging.info(f"模型加载成功 | 分类类别：{model.classes_} | 异常类对应索引：{np.where(model.classes_ == 1)[0][0]}")
+    logging.info(f"标准化器加载成功 | 特征维度：{scaler.n_features_in_} | 模型类型：{type(model).__name__}")
+except Exception as e:
+    logging.error(f"模型加载失败：{str(e)} | 异常类型：{type(e).__name__}")
+    model = None
+    scaler = None
 
 class FlowProcessor:
-    """连接数据收集和异常检测的桥梁"""
-    
+    """流量处理器（异常检测）"""
     def __init__(self):
-        self.db_path = 'netflow.db'
-        self.detector = SimpleAnomalyDetector()
+        self.db_path = DATABASE_PATH
+        self.check_interval = CHECK_INTERVAL
         self.is_running = False
-        self.check_interval = 30
-        
-        # 等待数据库初始化完成
-        time.sleep(5)
-        self.ensure_database()
-        
-    def ensure_database(self):
-        """确保数据库和表存在"""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS netflow (
-                    ID INTEGER PRIMARY KEY AUTOINCREMENT,
-                    IN_BYTES INTEGER,
-                    OUT_BYTES INTEGER,
-                    IN_PKTS INTEGER,
-                    OUT_PKTS INTEGER,
-                    IPV4_SRC_ADDR TEXT,
-                    IPV4_DST_ADDR TEXT,
-                    L4_SRC_PORT INTEGER,
-                    L4_DST_PORT INTEGER,
-                    PROTOCOL INTEGER,
-                    TIMESTAMP DATETIME DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS anomaly_records (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp DATETIME,
-                    flow_data TEXT,
-                    anomaly_score REAL,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            
-            conn.commit()
-            conn.close()
-            logger.info("数据库检查完成")
-        except Exception as e:
-            logger.error(f"数据库初始化失败: {e}")
-    
-    def get_new_flows(self):
-        """从数据库获取最新的流记录"""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            cursor.execute("""
-                SELECT IN_BYTES, OUT_BYTES, PROTOCOL, IN_PKTS, L4_SRC_PORT, L4_DST_PORT 
-                FROM netflow 
-                WHERE TIMESTAMP > datetime('now', '-60 seconds')
-                ORDER BY ID DESC
-                LIMIT 10
-            """)
-            
-            flows = cursor.fetchall()
-            conn.close()
-            return flows
-            
-        except Exception as e:
-            if logger.level == logging.DEBUG:
-                logger.error(f"获取流数据失败: {e}")
-            return    
-            
-    def process_new_flows(self):
-        """处理新的流数据"""
-        flows = self.get_new_flows()
-        
-        if flows:
-            logger.info(f"发现 {len(flows)} 条新的流记录")
-            
-            for flow in flows:
-                flow_data = {
-                    'timestamp': time.time(),
-                    'in_bytes': flow[0],
-                    'out_bytes': flow[1], 
-                    'protocol': flow[2],
-                    'in_pkts': flow[3],
-                    'src_port': flow[4],
-                    'dst_port': flow[5]
-                }
-                
-                result = self.detector.analyze_flow(flow_data)
-                
-                if result and result['is_anomaly']:
-                    logger.warning(f"⚠️  发现异常流量! 分数: {result['score']:.2f}")
-                    self.handle_anomaly(flow_data, result)
-        else:
-            logger.debug("没有新的流数据")
-    
-    def handle_anomaly(self, flow_data, result):
-        """处理异常检测结果"""
-        logger.warning(f"异常详情: {flow_data}")
-        logger.warning(f"检测结果: {result}")
-        self.save_anomaly_record(flow_data, result)
-    
-    def save_anomaly_record(self, flow_data, result):
-        """保存异常记录到数据库"""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS anomaly_records (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp DATETIME,
-                    flow_data TEXT,
-                    anomaly_score REAL,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            
-            cursor.execute("""
-                INSERT INTO anomaly_records (timestamp, flow_data, anomaly_score)
-                VALUES (?, ?, ?)
-            """, (flow_data['timestamp'], str(flow_data), result['score']))
-            
-            conn.commit()
-            conn.close()
-            
-        except Exception as e:
-            logger.error(f"保存异常记录失败: {e}")
-    
-    def start_processing(self):
-        """开始处理循环"""
-        self.is_running = True
-        logger.info("开始流量数据处理...")
-        
-        while self.is_running:
-            try:
-                self.process_new_flows()
-                time.sleep(self.check_interval)
-            except Exception as e:
-                logger.error(f"处理循环出错: {e}")
-                time.sleep(1)
-    
-    def stop_processing(self):
-        """停止处理"""
-        self.is_running = False
-        logger.info("停止流量数据处理")
+        self.batch_size = 100
+        # 复用全局加载的模型（不重复加载）
+        self.model = model
+        self.scaler = scaler
 
+        self.recent_anomaly_scores = []  # 存储近期异常分数的列表
+
+        self.anomaly_cache = []  # 缓存10分钟内的所有异常
+        self.last_alert_time = time.time()  # 上次发告警的时间
+
+        logging.info(f"初始化处理器 | 数据库路径：{self.db_path} | 检测间隔：{self.check_interval}s | 批次大小：{self.batch_size}")
+        time.sleep(3)
+        self.ensure_database()
+
+    def ensure_database(self):
+        """确保数据库表存在"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            # 1. 先检查netflow表是否有is_processed字段，没有则自动添加
+            cursor.execute("PRAGMA table_info(netflow);")
+            columns = [col[1] for col in cursor.fetchall()]  # 提取所有字段名
+            logging.info(f"检查netflow表结构 | 当前字段：{columns}")
+            if 'is_processed' not in columns:
+                cursor.execute("ALTER TABLE netflow ADD COLUMN is_processed INTEGER DEFAULT 0;")
+                logging.info(f"已自动为netflow表添加is_processed字段（路径：{self.db_path}）")
+            else:
+                logging.info(f"netflow表已存在is_processed字段（路径：{self.db_path}）")
+            
+            # 2. 检查anomaly_records表
+            cursor.execute("PRAGMA table_info(anomaly_records);")
+            anomaly_columns = [col[1] for col in cursor.fetchall()]
+            logging.info(f"检查anomaly_records表结构 | 当前字段：{anomaly_columns}")
+            
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS anomaly_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                flow_id INTEGER NOT NULL,  -- 建表时直接添加，关联netflow的id
+                src_ip TEXT,
+                dst_ip TEXT,
+                in_bytes INTEGER,
+                out_bytes INTEGER,  -- 新增出字节数
+                in_packets INTEGER,
+                out_packets INTEGER,  -- 新增出包数
+                anomaly_score FLOAT,
+                timestamp INTEGER,
+                FOREIGN KEY (flow_id) REFERENCES netflow(id)  -- 外键关联（可选，增强数据完整性）
+            )
+            """)
+            conn.commit()
+            logging.info("数据库表检查/创建完成")
+        except Exception as e:
+            logging.error(f"数据库表初始化失败：{str(e)} | 异常类型：{type(e).__name__}")
+        finally:
+            if 'conn' in locals():
+                conn.close()
+
+    def get_new_flows(self):
+        """获取未处理的新流量（解决重复检测）"""
+        flows = []
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            # 先统计未处理流量总数
+            cursor.execute("SELECT COUNT(*) FROM netflow WHERE is_processed = 0;")
+            total_unprocessed = cursor.fetchone()[0]
+            logging.info(f"查询未处理流量 | 未处理流量总数：{total_unprocessed} | 本次查询批次：{self.batch_size}")
+            
+            # 查询具体流量数据
+            cursor.execute("""
+                SELECT id, src_ip, dst_ip, protocol, 
+                   src_port, dst_port, in_bytes, out_bytes, in_packets,out_packets, timestamp,
+                   first_switched, last_switched, tcp_flags  -- 新增
+                FROM netflow
+                WHERE is_processed = 0  -- 仅保留未处理条件
+                ORDER BY id DESC
+                LIMIT ?
+            """, (self.batch_size,))
+            flows = [dict(row) for row in cursor.fetchall()]
+            if flows and 'id' not in flows[0]:
+                logging.error("查询结果中缺少id字段！")
+            else:
+                logging.info(f"查询到未处理流量数量：{len(flows)} | 第一条流量id：{flows[0]['id'] if flows else '无'}")
+            
+            # 标记为已处理（注意：原代码是SET is_processed = 0，这里修正为1，否则会重复处理）
+            if flows:
+                flow_ids = [flow['id'] for flow in flows]
+                cursor.executemany("UPDATE netflow SET is_processed = 1 WHERE id = ?", [(id,) for id in flow_ids])
+                conn.commit()
+                logging.info(f"已标记 {len(flow_ids)} 条流量为已处理 | 标记的ID：{flow_ids[:10]}...")
+        
+        except Exception as e:
+            logging.error(f"获取未处理流量失败：{str(e)} | 异常类型：{type(e).__name__}")
+        finally:
+            if 'conn' in locals():
+                conn.close()
+        return flows
+
+    def netflow_to_kdd_features(self, netflow_dict):
+        """NetFlow→KDD 41维特征（全数字版，无字符串）"""
+        try:
+            kdd_data = {}
+            logging.debug(f"开始转换流量特征 | 流量ID：{netflow_dict.get('id')} | 源IP：{netflow_dict.get('src_ip')} | 目的IP：{netflow_dict.get('dst_ip')}")
+        
+            # 1. 核心特征计算（duration是数值，无需转换）
+            first_switched = netflow_dict.get('first_switched', 0)
+            last_switched = netflow_dict.get('last_switched', 0)
+            kdd_data['duration'] = max(0, last_switched - first_switched) # 修正：原代码是0，这里计算真实时长
+            logging.debug(f"流量{netflow_dict.get('id')} | duration计算：last_switched({last_switched}) - first_switched({first_switched}) = {kdd_data['duration']}")
+        
+            # 2. 协议类型：直接转数字（无字符串）
+            proto_map = {6: 1, 17: 2, 1: 3, 0: 0}
+            protocol = netflow_dict.get('protocol', 0)
+            kdd_data['protocol_type'] = proto_map.get(protocol, 0)
+            logging.debug(f"流量{netflow_dict.get('id')} | 协议转换：{protocol} → {kdd_data['protocol_type']}")
+        
+            # 3. TCP标志位：先转字符串再转数字（保留原有逻辑+补数字映射）
+            tcp_flag_map = {0: 0, 2: 1, 16: 2, 18: 3}
+            tcp_flags = netflow_dict.get('tcp_flags', 0)
+            kdd_data['flag'] = tcp_flag_map.get(tcp_flags, 0)  # 无对应字段，暂时设为0
+            logging.debug(f"流量{netflow_dict.get('id')} | TCP标志：{kdd_data['flag']}")
+        
+            # 4. 基础数值特征（本身就是数字，直接赋值）
+            kdd_data['src_bytes'] = netflow_dict.get('in_bytes', 0)
+            kdd_data['dst_bytes'] = netflow_dict.get('out_bytes', 0)
+            
+            in_packets = netflow_dict.get('in_packets', 0)
+            out_packets = netflow_dict.get('out_packets', 0)
+            total_packets = in_packets + out_packets
+            kdd_data['count'] = total_packets    # 核心特征count用总数据包
+            kdd_data['srv_count'] = out_packets  # 服务端数据包数（出包）
+            logging.debug(f"流量{netflow_dict.get('id')} | 基础特征：src_bytes={kdd_data['src_bytes']}, count={kdd_data['count']}")
+        
+            # 错误率相关：基于出包计算
+            kdd_data['serror_rate'] = 0.0 if total_packets == 0 else (out_packets / total_packets)
+            kdd_data['rerror_rate'] = 0.0 if in_packets == 0 else (in_packets / total_packets)
+
+            # 5. 服务名：先端口→字符串再转数字（保留原有逻辑+补数字映射）
+            dst_port = netflow_dict.get('dst_port', 0)
+            port_service_num_map = {80: 1, 443: 2, 53: 3, 21: 4, 22: 5, 389: 6, 25: 7, 110: 8, 143: 9, 3389: 10}
+            kdd_data['service'] = port_service_num_map.get(dst_port, 0)
+            logging.debug(f"流量{netflow_dict.get('id')} | 服务转换：目的端口{dst_port} → {kdd_data['service']}")
+        
+            # 6. 补全41维特征（无数据填0，全是数字）
+            for col in NETFLOW_FEATURE_COLUMNS:
+                if col not in kdd_data:
+                    kdd_data[col] = 0  # 所有缺失特征填0（数字）
+            
+            # 7. 按顺序返回纯数字列表
+            feature_list = [kdd_data[col] for col in NETFLOW_FEATURE_COLUMNS]
+            logging.debug(f"流量{netflow_dict.get('id')} | 特征转换完成 | 特征长度：{len(feature_list)} | 前5维特征：{feature_list[:5]}")
+            return feature_list
+        except Exception as e:
+            logging.error(f"流量{netflow_dict.get('id')}特征转换失败：{str(e)} | 异常类型：{type(e).__name__}")
+            return [0]*41  # 转换失败返回全0特征
+
+    def detect_anomaly(self, flows):
+        """异常检测"""
+        if not flows:
+            logging.info("检测跳过：无流量数据")
+            return 0
+        if not self.model or not self.scaler:
+            logging.error("检测跳过：模型或标准化器未加载")
+            return 0
+        
+        logging.info(f"=== 开始检测 | 模型类型：{type(self.model).__name__} | 流量数量：{len(flows)} ===")
+        # 提取特征
+        features = []
+        flow_info = []
+        for idx, flow in enumerate(flows):
+            feat = self.netflow_to_kdd_features(flow)
+            features.append(feat)
+            flow_info.append({
+                'flow_id': flow['id'],
+                'src_ip': flow['src_ip'],
+                'dst_ip': flow['dst_ip'],
+                'in_bytes': flow['in_bytes'],
+                'out_bytes': flow['out_bytes'],  # 新增
+                'in_packets': flow['in_packets'],
+                'out_packets': flow['out_packets'],  # 新增
+                'timestamp': flow['timestamp']
+            })
+            if idx == 0:
+                logging.info(f"第1条流量特征示例：{feat[:5]}...（总维度：{len(feat)}）")
+        
+        # 纯数字数组+标准化
+        try:
+            features_array = np.array(features)
+            logging.info(f"特征数组形状：{features_array.shape} | 训练时特征维度：{self.scaler.n_features_in_}")  # 确认维度匹配
+            
+            # 校验特征维度
+            if features_array.shape[1] != self.scaler.n_features_in_:
+                logging.error(f"特征维度不匹配！当前特征维度：{features_array.shape[1]} | 标准化器期望维度：{self.scaler.n_features_in_}")
+                return 0
+            
+            scaled_features = self.scaler.transform(features_array)
+            logging.info(f"第1条流量标准化后特征：{scaled_features[0][:5]}... | 标准化后数组形状：{scaled_features.shape}")
+        
+            # 预测
+            predictions = self.model.predict(scaled_features)
+            scores = self.model.predict_proba(scaled_features)[:, 1]
+            logging.info(f"=== 预测结果 ===")
+            logging.info(f"预测数组形状：predictions={predictions.shape}, scores={scores.shape}")
+            logging.info(f"异常概率范围：[{scores.min():.4f}, {scores.max():.4f}] | 预测值分布：正常({np.sum(predictions==0)}), 异常({np.sum(predictions==1)})")
+            
+            for idx, (info, prob, pred) in enumerate(zip(flow_info, scores, predictions)):
+                logging.info(
+                    f"流量{idx+1} | ID：{info['flow_id']} | 源IP：{info['src_ip']}  | 目的IP：{info['dst_ip']} | 异常概率：{prob:.4f} | 预测结果：{'异常' if pred == 1 else '正常'}"
+                )
+
+            logging.info(f"flow_info长度：{len(flow_info)} | scores长度：{len(scores)} | predictions长度：{len(predictions)}")
+            assert len(flow_info) == len(scores) == len(predictions), "检测数据长度不匹配！"
+
+            # 记录异常
+                # 新逻辑：根据最近10+个分数计算动态阈值
+            if len(self.recent_anomaly_scores) > 10:
+            # 取最近分数的75分位数 + 0.1（避免误报），上限0.8（避免漏报）
+                threshold = np.percentile(self.recent_anomaly_scores, 75) + 0.1
+                anomaly_threshold = min(threshold, 0.8)
+            else:
+                anomaly_threshold = 0.4  # 初始阶段用固定阈值
+    
+            # 记录当前批次的异常分数（只保留最近100个）
+            self.recent_anomaly_scores.extend(scores)
+            if len(self.recent_anomaly_scores) > 100:
+                self.recent_anomaly_scores = self.recent_anomaly_scores[-100:]  # 只留最后100个
+
+            logging.info(f"异常判断阈值：{anomaly_threshold}")
+            anomaly_count = 0
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            for i, (info, prob, pred) in enumerate(zip(flow_info, scores, predictions)):
+                logging.debug(f"处理异常记录{i+1} | info内容：{info} | 是否包含flow_id：{'flow_id' in info}")
+                if prob >= anomaly_threshold:  # 用概率判断更准确
+                    anomaly_count += 1
+                    cursor.execute("""
+                    INSERT INTO anomaly_records (flow_id, src_ip, dst_ip,in_bytes,out_bytes, in_packets, out_packets, anomaly_score, timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (info['flow_id'], info['src_ip'], info['dst_ip'], info['in_bytes'], info['out_bytes'], info['in_packets'], info['out_packets'], prob, info['timestamp']))
+             # -------------------------- 新增：调用QQ邮箱告警 --------------------------
+        # 构造告警内容（清晰显示异常信息）
+                    alert_content = f"""
+【NetFlow异常流量告警详情】
+1. 异常流量ID：{info['flow_id']}
+2. 源IP地址：{info['src_ip']}
+3. 目的IP地址：{info['dst_ip']}
+4. 流量数据：入字节{info['in_bytes']} | 出字节{info['out_bytes']} | 入包{info['in_packets']} | 出包{info['out_packets']}
+5. 异常概率：{prob:.4f}（阈值{anomaly_threshold}）
+6. 发生时间：{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(info['timestamp']))}
+"""
+                    self.anomaly_cache.append(alert_content)  # 缓存到列表
+                    logging.info(f"已将异常ID:{info['flow_id']}加入缓存 | 当前缓存异常数：{len(self.anomaly_cache)}")
+         
+            conn.commit()
+            logging.info(f"成功插入 {anomaly_count} 条异常记录到anomaly_records表")
+        except Exception as e:
+            current_i = i if 'i' in locals() else '未执行到循环'
+            current_info = info if 'info' in locals() else '无'
+            logging.error(f"异常检测过程失败 | 当前循环位置：{current_i} | 当前info：{current_info} | 错误：{str(e)}")
+            anomaly_count = 0
+        finally:
+            if 'conn' in locals():
+                conn.close()
+        
+        logging.info(f"=== 检测完成 | 异常数量：{anomaly_count} ===")
+        return anomaly_count
+
+    def start_processing(self):
+        """启动处理器"""
+        #日志
+      
+
+        self.is_running = True
+        logging.info("=== 数据处理器启动成功 ===")
+        logging.info(f"检测间隔：{self.check_interval}秒 | 批次大小：{self.batch_size} | 数据库路径：{self.db_path}")
+        
+        # 标记是否已清理过（避免一天多次清理）
+        has_cleaned_today = False
+
+        while self.is_running:
+            
+            current_time = time.time()
+            time_diff = current_time - self.last_alert_time
+            current_local_time = time.localtime(current_time)
+            current_hour = current_local_time.tm_hour  
+
+            cache_len = len(self.anomaly_cache)
+            logging.info(f"当前系统时间：{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(current_time))}")
+            logging.info(f"距上次告警时间差：{time_diff:.2f}秒 | 缓存异常数：{cache_len}")
+
+            if (time_diff >= 30) and cache_len > 0:
+                    # 合并缓存的所有异常
+                    total_content = f"【NetFlow异常汇总告警】\n近10分钟共检测到{len(self.anomaly_cache)}条异常，详情如下：\n" + "".join(self.anomaly_cache)
+                    self.send_qq_email_alert(total_content)
+                    # 重置缓存和时间
+                    self.anomaly_cache = []
+                    self.last_alert_time = current_time
+                    logging.info(f"告警发送完成 | 缓存已清空 | 上次告警时间重置为：{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(current_time))}")
+
+                # 紧急条件：10分钟内异常数>20，立即发告警
+            elif len(self.anomaly_cache) > 20:
+                    total_content = f"【紧急】NetFlow异常激增告警\n10分钟内已检测到{len(self.anomaly_cache)}条异常，详情如下：\n" + "".join(self.anomaly_cache)
+                    self.send_qq_email_alert(total_content)
+                    self.anomaly_cache = []
+                    self.last_alert_time = current_time
+            
+                   #每天凌晨3点清理旧数据
+            if current_hour == 3 and not has_cleaned_today:
+                    self.clean_old_data(keep_days=7)  # 保留7天数据
+                    has_cleaned_today = True  # 标记今天已清理
+            # 不是3点时，重置标记（确保第二天3点能清理）
+            elif current_hour != 3:
+                    has_cleaned_today = False
+            
+            
+            try:
+           
+
+
+                logging.info("=== 开始新一轮检测循环 ===")
+                flows = self.get_new_flows()
+                
+                if not flows:
+                    logging.info("本轮无未处理流量，等待下一次检测")
+                    time.sleep(self.check_interval)
+                    continue
+                
+                logging.info(f"开始处理 {len(flows)} 条流量数据 | 流量ID范围：{flows[0]['id']} ~ {flows[-1]['id']}")
+                anomaly_count = self.detect_anomaly(flows)
+                
+                if anomaly_count == 0:
+                    logging.info(f"本轮检测完成 | 未检测到异常流量 | 处理流量数：{len(flows)}")
+                else:
+                    logging.warning(f"本轮检测完成 | 检测到 {anomaly_count} 条异常流量 | 处理流量数：{len(flows)}")
+                
+                
+
+            except Exception as e:
+                logging.error(f"处理器运行失败：{str(e)} | 异常类型：{type(e).__name__}")
+            finally:
+                logging.info(f"本轮检测循环结束，等待{self.check_interval}秒后继续")
+                time.sleep(self.check_interval)
+
+    def stop(self):
+        """停止处理器"""
+        self.is_running = False
+        logging.info("=== 数据处理器已停止 ===")
+        # 在flow_processor.py中新增清理函数
+
+# -------------------------- 新增：QQ邮箱告警方法 --------------------------
+    def send_qq_email_alert(self, content):
+        """QQ邮箱告警：检测到异常时自动发邮件（无需建群，单人可用）"""
+        
+        # 配置你的QQ邮箱信息（必须改这里！）
+        sender_qq = "584958612@qq.com"  # 比如12345678@qq.com
+        sender_auth_code = "uxetzsclyqkvbcig"  # 不是QQ密码，获取方法见下方说明
+        receiver_qq = "584958612@qq.com"  # 可以和sender_qq一样，给自己发
+        
+        try:
+            logging.info(f"开始发送QQ邮箱告警 | 收件人：{receiver_qq}")
+            # 1. 配置邮件内容
+            message = MIMEText(content, 'plain', 'utf-8')
+            message['From'] = sender_qq  # 去掉Header，直接用字符串格式
+            message['To'] = Header(receiver_qq, 'utf-8')  # 收件人
+            message['Subject'] = Header("【紧急】NetFlow异常流量告警", 'utf-8')  # 邮件标题
+            
+            # 2. 连接QQ邮箱SMTP服务器
+            smtp_obj = smtplib.SMTP_SSL('smtp.qq.com', 465)  # QQ邮箱固定服务器和端口
+            smtp_obj.login(sender_qq, sender_auth_code)  # 登录
+            smtp_obj.sendmail(sender_qq, receiver_qq, message.as_string())  # 发送邮件
+            smtp_obj.quit()
+            
+            logging.info("异常告警已发送到QQ邮箱！")
+        except Exception as e:
+            logging.error(f"QQ邮箱告警发送失败：{str(e)} | 检查QQ号和授权码是否正确")
+
+    # -------------------------- 新增：清理旧数据方法（移到类内） --------------------------
+    def clean_old_data(self, keep_days=7):
+        """清理超过N天的历史数据（避免数据库撑爆）"""
+        try:
+            conn = sqlite3.connect(self.db_path)  # 类内可直接用self.db_path
+            cursor = conn.cursor()
+            # 计算7天前的时间戳（秒）
+            expire_ts = int(time.time()) - keep_days * 86400
+            # 清理netflow表：只删已处理的旧数据
+            cursor.execute("DELETE FROM netflow WHERE is_processed=1 AND timestamp < ?", (expire_ts,))
+            # 清理异常表：删旧异常记录
+            cursor.execute("DELETE FROM anomaly_records WHERE timestamp < ?", (expire_ts,))
+            conn.commit()
+            logging.info(f"清理完成：删除{cursor.rowcount}条过期数据（保留近{keep_days}天）")
+        except Exception as e:
+            logging.error(f"清理旧数据失败：{str(e)}")
+        finally:
+            if 'conn' in locals():
+                conn.close()
+
+# 启动处理器
 if __name__ == "__main__":
-    processor = FlowProcessor()
-    processor.start_processing()
+    try:
+        processor = FlowProcessor()
+        processor.start_processing()
+    except KeyboardInterrupt:
+        logging.info("接收到停止信号，正在关闭处理器...")
+        processor.stop()
+    except Exception as e:
+        logging.critical(f"处理器启动失败：{str(e)} | 异常类型：{type(e).__name__}")
+        sys.exit(1)

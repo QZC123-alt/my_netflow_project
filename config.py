@@ -33,7 +33,7 @@ WEB_CONFIG = {
 
 
 # 数据库配置
-DATABASE_PATH = 'netflow.db'  # 统一数据库名称
+DATABASE_PATH = r"D:\VS\project\Python\Python_Netflow\netflow.db"  # 绝对路径，避免找不到
 
 # NetFlow配置
 NETFLOW_HOST = '0.0.0.0'

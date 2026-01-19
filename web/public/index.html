@@ -3,7 +3,7 @@
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<title>NetFlow监控仪表板 - 基于mnet设计</title>
+	<title>NetFlow监控仪表板</title>
 	<script src="https://cdn.jsdelivr.net/npm/vue@2.6.14/dist/vue.js"></script>
 	<script src="https://cdn.jsdelivr.net/npm/echarts@5.4.0/dist/echarts.min.js"></script>
 	<script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
@@ -158,6 +158,11 @@
 		</nav>
 		<!-- 主容器 -->
 		<div class="main-container">
+			<div style="margin: 10px 0; text-align: right;">
+				<a href="anomaly.html" class="btn btn-success">
+					<i class="bi bi-exclamation-triangle"></i> 查看异常记录
+				</a>
+			</div>
 			<!-- 警告消息 -->
 			<div class="alert-container" v-if="showAlert">
 				<div class="alert alert-warning alert-dismissible fade show" role="alert">

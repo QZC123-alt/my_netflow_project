@@ -6,9 +6,15 @@ import os
 import csv
 from io import StringIO
 from flask import make_response
+from api.anomaly_routes import anomaly_bp
+import time  
 
+# 创建Flask应用
 app = Flask(__name__)
 CORS(app)
+
+# 注册蓝图
+app.register_blueprint(anomaly_bp)
 
 # -------------------------- 核心修改：定位到web/public文件夹 --------------------------
 # 1. 获取项目根目录：
@@ -28,10 +34,12 @@ os.makedirs(FRONTEND_DIR, exist_ok=True)
 def serve_frontend(filename):
     return send_from_directory(FRONTEND_DIR, filename)
 
+
 # 访问根路径时返回index.html
 @app.route('/')
 def index():
-    return send_from_directory(FRONTEND_DIR, 'index.html')
+   return send_from_directory(FRONTEND_DIR, 'index.html')
+   
 
 # 数据库配置（根据你的实际路径修改，确保路径正确）
 DATABASE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)))
@@ -164,12 +172,12 @@ def stats_ip_date_history():
         # 处理hours=0的情况（统计所有数据）
         if ip_type == 'src':
             base_sql = """
-                SELECT src_ip AS ip, DATE(timestamp) AS date, SUM(in_bytes) AS bytes
+                SELECT src_ip AS ip, DATE(timestamp, 'unixepoch') AS date, SUM(in_bytes) AS bytes
                 FROM netflow
             """
         else:
             base_sql = """
-                SELECT dst_ip AS ip, DATE(timestamp) AS date, SUM(in_bytes) AS bytes
+                SELECT dst_ip AS ip, DATE(timestamp, 'unixepoch') AS date, SUM(in_bytes) AS bytes
                 FROM netflow
             """
         
@@ -178,9 +186,10 @@ def stats_ip_date_history():
         if hours > 0:
             base_sql += " WHERE timestamp >= ?"
             start_time = datetime.now() - timedelta(hours=hours)
-            params.append(start_time.strftime('%Y-%m-%d %H:%M:%S'))
+            start_time_ts = int(start_time.timestamp())  # 转为整数时间戳（如1716205800）
+            params.append(start_time_ts)  # 传入整数参数，匹配表中timestamp字段类型
         
-        base_sql += " GROUP BY ip, DATE(timestamp) ORDER BY bytes DESC"
+        base_sql += " GROUP BY ip, DATE(timestamp, 'unixepoch') ORDER BY bytes DESC"
         cursor.execute(base_sql, params)
         results = cursor.fetchall()
         conn.close()
@@ -229,6 +238,7 @@ def stats_ip_date_history():
             'data': []
         }), 500
 
+# 4.导出 
 @app.route('/api/export/all_stats', methods=['GET'])
 def export_all_stats():
     """导出所有统计数据"""
@@ -454,6 +464,128 @@ def export_protocol_data():
         
     except Exception as e:
         app.logger.error(f"导出协议数据错误：{str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# 新增：导出异常记录数据（专门适配anomaly.html）
+@app.route('/api/export/anomaly_data', methods=['GET'])
+def export_anomaly_data():
+    """导出anomaly_records表的所有异常记录"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # 查询所有异常记录（按时间倒序）
+        cursor.execute("""
+            SELECT 
+                id, flow_id, src_ip, dst_ip, 
+                in_bytes, out_bytes, in_packets, out_packets,
+                anomaly_score, timestamp
+            FROM anomaly_records
+            ORDER BY timestamp DESC
+        """)
+        results = cursor.fetchall()
+        conn.close()
+        
+        # 准备CSV数据（字段和anomaly.html表格对齐）
+        output = StringIO()
+        writer = csv.writer(output)
+        # 写入CSV标题（和表格列名一致）
+        writer.writerow([
+            '异常ID', '关联流量ID', '源IP', '目的IP',
+            '入字节', '出字节', '入包数', '出包数',
+            '异常概率', '发生时间'
+        ])
+        
+        # 写入数据（格式化时间戳）
+        for row in results:
+            writer.writerow([
+                row['id'],
+                row['flow_id'],
+                row['src_ip'],
+                row['dst_ip'],
+                row['in_bytes'],
+                row['out_bytes'],
+                row['in_packets'],
+                row['out_packets'],
+                round(row['anomaly_score'], 4),  # 保留4位小数
+                time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(row['timestamp']))  # 时间格式化
+            ])
+        
+        # 构建响应（修复导出文件类型问题，和之前的导出接口一致）
+        response = make_response(output.getvalue().encode('utf-8-sig'))  # UTF-8 BOM兼容Excel
+        response.headers["Content-Disposition"] = "attachment; filename=anomaly_records.csv"
+        response.headers["Content-Type"] = "text/csv; charset=utf-8"  # 明确文件类型
+        return response
+        
+    except Exception as e:
+        app.logger.error(f"导出异常数据错误：{str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# 新增：获取所有异常记录
+@app.route('/api/anomaly/all', methods=['GET'])
+def get_all_anomalies():
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, flow_id, src_ip, dst_ip, in_bytes, out_bytes, anomaly_score, timestamp
+            FROM anomaly_records
+            ORDER BY timestamp DESC
+        """)
+        results = cursor.fetchall()
+        conn.close()
+        data = [{k: row[k] for k in row.keys()} for row in results]
+        return jsonify({'success': True, 'data': data}), 200
+    except Exception as e:
+        app.logger.error(f"获取所有异常失败：{str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# 新增：按IP筛选异常记录
+@app.route('/api/anomaly/recent', methods=['GET'])
+def get_recent_anomalies():
+    try:
+        limit = int(request.args.get('limit', 5))
+        filter_ip = request.args.get('ip', '').strip()
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        sql = """
+            SELECT id, flow_id, src_ip, dst_ip,in_bytes, anomaly_score, timestamp
+            FROM anomaly_records
+        """
+        params = []
+        if filter_ip:
+            sql += " WHERE src_ip = ? OR dst_ip = ?"
+            params.extend([filter_ip, filter_ip])
+        
+        sql += " ORDER BY timestamp DESC LIMIT ?"
+        params.append(limit)
+        
+        cursor.execute(sql, params)
+        results = cursor.fetchall()
+        
+        # 获取总数（支持筛选）
+        total_sql = "SELECT COUNT(*) FROM anomaly_records"
+        if filter_ip:
+            total_sql += " WHERE src_ip = ? OR dst_ip = ?"
+            total_cursor = conn.cursor()
+            total_cursor.execute(total_sql, [filter_ip, filter_ip])
+            total = total_cursor.fetchone()[0]
+        else:
+            total_cursor = conn.cursor()
+            total_cursor.execute(total_sql)
+            total = total_cursor.fetchone()[0]
+        
+        conn.close()
+        data = [{
+            'id': row['id'], 'flow_id': row['flow_id'], 'src_ip': row['src_ip'],
+            'dst_ip': row['dst_ip'],'in_bytes': row['in_bytes'] ,'anomaly_score': row['anomaly_score'],
+            'timestamp': row['timestamp']
+        } for row in results]
+        return jsonify({'success': True, 'data': data, 'total': total}), 200
+    except Exception as e:
+        app.logger.error(f"获取最近异常失败：{str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 # -------------------------- 启动服务 --------------------------
