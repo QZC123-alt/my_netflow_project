@@ -156,193 +156,200 @@
 				</div>
 			</div>
 		</nav>
+		
+			
+			
 		<!-- 主容器 -->
-		<div class="main-container">
-			<div style="margin: 10px 0; text-align: right;">
-				<a href="anomaly.html" class="btn btn-success">
-					<i class="bi bi-exclamation-triangle"></i> 查看异常记录
-				</a>
-			</div>
-			<!-- 警告消息 -->
-			<div class="alert-container" v-if="showAlert">
-				<div class="alert alert-warning alert-dismissible fade show" role="alert">
-					<strong>提示：</strong> {{ alertMessage }}
-					<button type="button" class="btn-close" @click="showAlert = false"></button>
-				</div>
-			</div>
-			<!-- 统计卡片区域 -->
-			<div class="row mb-4">
-				<div class="col-lg-2 col-md-4 col-sm-6">
-					<div class="stat-card text-center">
-						<div class="stat-value">{{ formatNumber(stats.total_flows) }}</div>
-						<div class="stat-label">
-							<i class="bi bi-diagram-3"></i> 总流数
+				<div class="main-container">
+					<div style="margin: 10px 0; text-align: right;">
+						<a href="anomaly.html" class="btn btn-success">
+							<i class="bi bi-exclamation-triangle"></i> 查看异常记录
+						</a>
+						<a href="control.html" class="btn btn-success">
+							<i class="bi bi-gear-fill"></i> 进入管理页面
+						</a>
+					</div>
+					
+					<!-- 警告消息 -->
+					<div class="alert-container" v-if="showAlert">
+						<div class="alert alert-warning alert-dismissible fade show" role="alert">
+							<strong>提示：</strong> {{ alertMessage }}
+							<button type="button" class="btn-close" @click="showAlert = false"></button>
+						</div>
+					</div>
+					<!-- 统计卡片区域 -->
+					<div class="row mb-4">
+						<div class="col-lg-2 col-md-4 col-sm-6">
+							<div class="stat-card text-center">
+								<div class="stat-value">{{ formatNumber(stats.total_flows) }}</div>
+								<div class="stat-label">
+									<i class="bi bi-diagram-3"></i> 总流数
+								</div>
+							</div>
+						</div>
+						<div class="col-lg-2 col-md-4 col-sm-6">
+							<div class="stat-card text-center">
+								<div class="stat-value">{{ formatBytes(stats.total_bytes) }}</div>
+								<div class="stat-label">
+									<i class="bi bi-hdd"></i> 总字节数
+								</div>
+							</div>
+						</div>
+						<div class="col-lg-2 col-md-4 col-sm-6">
+							<div class="stat-card text-center">
+								<div class="stat-value">{{ formatNumber(stats.total_packets) }}</div>
+								<div class="stat-label">
+									<i class="bi bi-box-seam"></i> 总包数
+								</div>
+							</div>
+						</div>
+						<div class="col-lg-2 col-md-4 col-sm-6">
+							<div class="stat-card text-center">
+								<div class="stat-value">{{ formatNumber(stats.unique_src_ips) }}</div>
+								<div class="stat-label">
+									<i class="bi bi-upload"></i> 源IP数
+								</div>
+							</div>
+						</div>
+						<div class="col-lg-2 col-md-4 col-sm-6">
+							<div class="stat-card text-center">
+								<div class="stat-value">{{ formatNumber(stats.unique_dst_ips) }}</div>
+								<div class="stat-label">
+									<i class="bi bi-download"></i> 目标IP数
+								</div>
+							</div>
+						</div>
+						<div class="col-lg-2 col-md-4 col-sm-6">
+							<div class="stat-card text-center">
+								<div class="stat-value">{{ loading ? '...' : refreshCount }}</div>
+								<div class="stat-label">
+									<i class="bi bi-arrow-clockwise"></i> 刷新次数
+								</div>
+							</div>
+						</div>
+					</div>
+					<!-- 在统计卡片区域下方添加总数据导出按钮 -->
+					<div class="row mb-3">
+						<div class="col-12 text-right">
+							<button class="btn btn-success" @click="exportAllStats">
+								<i class="bi bi-download"></i> 导出所有统计数据
+							</button>
+						</div>
+					</div>
+					<!-- 图表区域 -->
+					<div class="row mb-4">
+						<div class="col-lg-8">
+							<div class="chart-container">
+								<h5 class="mb-3">
+									<i class="bi bi-graph-up text-primary"></i>
+									Top IP流量趋势（复用mnet图表设计）
+								</h5>
+								<div v-if="loading" class="loading">
+									<div class="spinner"></div>
+								</div>
+								<div id="trendChart" style="height: 350px;"></div>
+							</div>
+						</div>
+						<div class="col-lg-4">
+							<div class="chart-container">
+								<h5 class="mb-3">
+									<i class="bi bi-pie-chart-fill text-success"></i>
+									协议分布
+								</h5>
+								<div v-if="loading" class="loading">
+									<div class="spinner"></div>
+								</div>
+								<div id="protocolChart" style="height: 350px;"></div>
+							</div>
+						</div>
+					</div>
+					<!-- 在图表区域添加导出按钮 -->
+					<div class="row mb-2">
+						<div class="col-lg-8 text-right">
+							<button class="btn btn-outline-success" @click="exportTrendData">
+								<i class="bi bi-download"></i> 导出流量趋势数据
+							</button>
+						</div>
+						<div class="col-lg-4 text-right">
+							<button class="btn btn-outline-success" @click="exportProtocolData">
+								<i class="bi bi-download"></i> 导出协议分布数据
+							</button>
+						</div>
+					</div>
+					<!-- Top IP表格 -->
+					<div class="row">
+						<div class="col-lg-6">
+							<div class="table-container">
+								<h5 class="mb-3">
+									<i class="bi bi-fire text-danger"></i>
+									Top源IP（按字节数）
+								</h5>
+								<div class="table-responsive">
+									<table class="table table-hover">
+										<thead>
+											<tr>
+												<th><i class="bi bi-hash"></i> 排名</th>
+												<th><i class="bi bi-hdd-network"></i> IP地址</th>
+												<th><i class="bi bi-hdd"></i> 字节数</th>
+												<th><i class="bi bi-box-seam"></i> 包数</th>
+												<th><i class="bi bi-diagram-3"></i> 流数</th>
+											</tr>
+										</thead>
+										<tbody>
+											<tr v-for="(item, index) in stats.topSrcIPs" :key="item.ip" class="align-middle">
+												<td><span class="badge bg-primary">{{ index + 1 }}</span></td>
+												<td><code>{{ item.ip }}</code></td>
+												<td>{{ formatBytes(item.total_bytes) }}</td>
+												<td>{{ formatNumber(item.total_packets) }}</td>
+												<td>{{ formatNumber(item.total_flows) }}</td>
+											</tr>
+										</tbody>
+									</table>
+								</div>
+							</div>
+						</div>
+						<div class="mt-3 text-right">
+							<button class="btn btn-outline-success" @click="exportTableData('src')">
+								<i class="bi bi-download"></i> 导出Top源IP数据
+							</button>
+						</div>
+						<div class="col-lg-6">
+							<div class="table-container">
+								<h5 class="mb-3">
+									<i class="bi bi-bullseye text-success"></i>
+									Top目标IP（按字节数）
+								</h5>
+								<div class="table-responsive">
+									<table class="table table-hover">
+										<thead>
+											<tr>
+												<th><i class="bi bi-hash"></i> 排名</th>
+												<th><i class="bi bi-hdd-network"></i> IP地址</th>
+												<th><i class="bi bi-hdd"></i> 字节数</th>
+												<th><i class="bi bi-box-seam"></i> 包数</th>
+												<th><i class="bi bi-diagram-3"></i> 流数</th>
+											</tr>
+										</thead>
+										<tbody>
+											<tr v-for="(item, index) in stats.topDstIPs" :key="item.ip" class="align-middle">
+												<td><span class="badge bg-success">{{ index + 1 }}</span></td>
+												<td><code>{{ item.ip }}</code></td>
+												<td>{{ formatBytes(item.total_bytes) }}</td>
+												<td>{{ formatNumber(item.total_packets) }}</td>
+												<td>{{ formatNumber(item.total_flows) }}</td>
+											</tr>
+										</tbody>
+									</table>
+								</div>
+							</div>
+						</div>
+						<div class="mt-3 text-right">
+							<button class="btn btn-outline-success" @click="exportTableData('dst')">
+								<i class="bi bi-download"></i> 导出Top目标IP数据
+							</button>
 						</div>
 					</div>
 				</div>
-				<div class="col-lg-2 col-md-4 col-sm-6">
-					<div class="stat-card text-center">
-						<div class="stat-value">{{ formatBytes(stats.total_bytes) }}</div>
-						<div class="stat-label">
-							<i class="bi bi-hdd"></i> 总字节数
-						</div>
-					</div>
-				</div>
-				<div class="col-lg-2 col-md-4 col-sm-6">
-					<div class="stat-card text-center">
-						<div class="stat-value">{{ formatNumber(stats.total_packets) }}</div>
-						<div class="stat-label">
-							<i class="bi bi-box-seam"></i> 总包数
-						</div>
-					</div>
-				</div>
-				<div class="col-lg-2 col-md-4 col-sm-6">
-					<div class="stat-card text-center">
-						<div class="stat-value">{{ formatNumber(stats.unique_src_ips) }}</div>
-						<div class="stat-label">
-							<i class="bi bi-upload"></i> 源IP数
-						</div>
-					</div>
-				</div>
-				<div class="col-lg-2 col-md-4 col-sm-6">
-					<div class="stat-card text-center">
-						<div class="stat-value">{{ formatNumber(stats.unique_dst_ips) }}</div>
-						<div class="stat-label">
-							<i class="bi bi-download"></i> 目标IP数
-						</div>
-					</div>
-				</div>
-				<div class="col-lg-2 col-md-4 col-sm-6">
-					<div class="stat-card text-center">
-						<div class="stat-value">{{ loading ? '...' : refreshCount }}</div>
-						<div class="stat-label">
-							<i class="bi bi-arrow-clockwise"></i> 刷新次数
-						</div>
-					</div>
-				</div>
-			</div>
-			<!-- 在统计卡片区域下方添加总数据导出按钮 -->
-			<div class="row mb-3">
-				<div class="col-12 text-right">
-					<button class="btn btn-success" @click="exportAllStats">
-						<i class="bi bi-download"></i> 导出所有统计数据
-					</button>
-				</div>
-			</div>
-			<!-- 图表区域 -->
-			<div class="row mb-4">
-				<div class="col-lg-8">
-					<div class="chart-container">
-						<h5 class="mb-3">
-							<i class="bi bi-graph-up text-primary"></i>
-							Top IP流量趋势（复用mnet图表设计）
-						</h5>
-						<div v-if="loading" class="loading">
-							<div class="spinner"></div>
-						</div>
-						<div id="trendChart" style="height: 350px;"></div>
-					</div>
-				</div>
-				<div class="col-lg-4">
-					<div class="chart-container">
-						<h5 class="mb-3">
-							<i class="bi bi-pie-chart-fill text-success"></i>
-							协议分布
-						</h5>
-						<div v-if="loading" class="loading">
-							<div class="spinner"></div>
-						</div>
-						<div id="protocolChart" style="height: 350px;"></div>
-					</div>
-				</div>
-			</div>
-			<!-- 在图表区域添加导出按钮 -->
-			<div class="row mb-2">
-				<div class="col-lg-8 text-right">
-					<button class="btn btn-outline-success" @click="exportTrendData">
-						<i class="bi bi-download"></i> 导出流量趋势数据
-					</button>
-				</div>
-				<div class="col-lg-4 text-right">
-					<button class="btn btn-outline-success" @click="exportProtocolData">
-						<i class="bi bi-download"></i> 导出协议分布数据
-					</button>
-				</div>
-			</div>
-			<!-- Top IP表格 -->
-			<div class="row">
-				<div class="col-lg-6">
-					<div class="table-container">
-						<h5 class="mb-3">
-							<i class="bi bi-fire text-danger"></i>
-							Top源IP（按字节数）
-						</h5>
-						<div class="table-responsive">
-							<table class="table table-hover">
-								<thead>
-									<tr>
-										<th><i class="bi bi-hash"></i> 排名</th>
-										<th><i class="bi bi-hdd-network"></i> IP地址</th>
-										<th><i class="bi bi-hdd"></i> 字节数</th>
-										<th><i class="bi bi-box-seam"></i> 包数</th>
-										<th><i class="bi bi-diagram-3"></i> 流数</th>
-									</tr>
-								</thead>
-								<tbody>
-									<tr v-for="(item, index) in stats.topSrcIPs" :key="item.ip" class="align-middle">
-										<td><span class="badge bg-primary">{{ index + 1 }}</span></td>
-										<td><code>{{ item.ip }}</code></td>
-										<td>{{ formatBytes(item.total_bytes) }}</td>
-										<td>{{ formatNumber(item.total_packets) }}</td>
-										<td>{{ formatNumber(item.total_flows) }}</td>
-									</tr>
-								</tbody>
-							</table>
-						</div>
-					</div>
-				</div>
-				<div class="mt-3 text-right">
-					<button class="btn btn-outline-success" @click="exportTableData('src')">
-						<i class="bi bi-download"></i> 导出Top源IP数据
-					</button>
-				</div>
-				<div class="col-lg-6">
-					<div class="table-container">
-						<h5 class="mb-3">
-							<i class="bi bi-bullseye text-success"></i>
-							Top目标IP（按字节数）
-						</h5>
-						<div class="table-responsive">
-							<table class="table table-hover">
-								<thead>
-									<tr>
-										<th><i class="bi bi-hash"></i> 排名</th>
-										<th><i class="bi bi-hdd-network"></i> IP地址</th>
-										<th><i class="bi bi-hdd"></i> 字节数</th>
-										<th><i class="bi bi-box-seam"></i> 包数</th>
-										<th><i class="bi bi-diagram-3"></i> 流数</th>
-									</tr>
-								</thead>
-								<tbody>
-									<tr v-for="(item, index) in stats.topDstIPs" :key="item.ip" class="align-middle">
-										<td><span class="badge bg-success">{{ index + 1 }}</span></td>
-										<td><code>{{ item.ip }}</code></td>
-										<td>{{ formatBytes(item.total_bytes) }}</td>
-										<td>{{ formatNumber(item.total_packets) }}</td>
-										<td>{{ formatNumber(item.total_flows) }}</td>
-									</tr>
-								</tbody>
-							</table>
-						</div>
-					</div>
-				</div>
-				<div class="mt-3 text-right">
-					<button class="btn btn-outline-success" @click="exportTableData('dst')">
-						<i class="bi bi-download"></i> 导出Top目标IP数据
-					</button>
-				</div>
-			</div>
-		</div>
 		<!-- 刷新按钮 -->
 		<button class="btn btn-primary refresh-btn" @click="refreshData" :disabled="loading">
 			<i class="bi bi-arrow-clockwise" :class="{ spin: loading}"></i>

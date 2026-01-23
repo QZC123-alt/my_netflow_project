@@ -12,6 +12,8 @@ from threading import Thread
 import smtplib
 from email.mime.text import MIMEText
 from email.header import Header
+import paramiko
+import threading
 
 # 项目根目录
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -23,40 +25,9 @@ except ImportError:
     CHECK_INTERVAL = 5
 
 # ========== 日志升级核心 ==========
-# 日志配置（升级：输出详细的文件名/行号+函数名 + 日志文件轮转）
-def setup_logging():
-    """初始化日志配置（封装为函数，便于复用和维护）"""
-    # 定义日志格式：包含 时间 + 日志器名 + 级别 + 文件名 + 行号 + 函数名 + 日志内容
-    log_format = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(funcName)s() - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'  # 统一时间格式
-    )
-    
-    # 1. 控制台处理器（输出到stdout）
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(log_format)
-    console_handler.setLevel(logging.INFO)  # 控制台只输出INFO及以上
-    
-    # 2. 文件处理器（轮转日志，避免文件过大）
-    # 单个日志文件最大50MB，保留5个备份
-    file_handler = RotatingFileHandler(
-        "run.log",
-        maxBytes=50 * 1024 * 1024,  # 50MB
-        backupCount=5,              # 最多保留5个备份
-        encoding='utf-8'            # 避免中文乱码
-    )
-    file_handler.setFormatter(log_format)
-    file_handler.setLevel(logging.DEBUG)  # 文件中保留DEBUG及以上（便于排查问题）
-    
-    # 配置根日志器
-    root_logger = logging.getLogger()
-    root_logger.setLevel(logging.DEBUG)  # 根级别设为DEBUG（向下兼容）
-    root_logger.handlers.clear()  # 清空默认handler，避免重复输出
-    root_logger.addHandler(console_handler)
-    root_logger.addHandler(file_handler)
+from utils.log_utils import get_module_logger
+logger = get_module_logger("flow_processor")  # 日志文件：processor.log
 
-# 执行日志初始化
-setup_logging()
 # ========== 日志升级结束 ==========
 
 # KDD 41维特征列（和run_system.py完全一致）
@@ -97,19 +68,25 @@ class FlowProcessor:
     """流量处理器（异常检测）"""
     def __init__(self):
         self.db_path = DATABASE_PATH
-        self.check_interval = CHECK_INTERVAL
+    
+    # 从数据库加载参数（正确逻辑）
+        self.config = self.load_model_config()
+        self.check_interval = self.config["check_interval"]
+        self.batch_size = self.config["batch_size"]  # 从配置读取
+        self.base_threshold = self.config["base_threshold"]
+        self.block_threshold = self.config["block_threshold"]
+        self.keep_days = self.config["keep_days"]
+    
         self.is_running = False
-        self.batch_size = 100
-        # 复用全局加载的模型（不重复加载）
+    # 删掉这行！避免覆盖配置的batch_size
+    # self.batch_size = 100  # 重复赋值，导致配置失效
+    
         self.model = model
         self.scaler = scaler
-
-        self.recent_anomaly_scores = []  # 存储近期异常分数的列表
-
-        self.anomaly_cache = []  # 缓存10分钟内的所有异常
-        self.last_alert_time = time.time()  # 上次发告警的时间
-
-        logging.info(f"初始化处理器 | 数据库路径：{self.db_path} | 检测间隔：{self.check_interval}s | 批次大小：{self.batch_size}")
+        self.recent_anomaly_scores = []
+        self.anomaly_cache = []
+        self.last_alert_time = time.time()
+        logging.info(f"初始化处理器 | 检测间隔：{self.check_interval}s | 批次大小：{self.batch_size}")
         time.sleep(3)
         self.ensure_database()
 
@@ -131,6 +108,8 @@ class FlowProcessor:
             # 2. 检查anomaly_records表
             cursor.execute("PRAGMA table_info(anomaly_records);")
             anomaly_columns = [col[1] for col in cursor.fetchall()]
+            if "is_false" not in anomaly_columns:
+                 cursor.execute("ALTER TABLE anomaly_records ADD COLUMN is_false INTEGER DEFAULT 0;")
             logging.info(f"检查anomaly_records表结构 | 当前字段：{anomaly_columns}")
             
             cursor.execute("""
@@ -145,6 +124,7 @@ class FlowProcessor:
                 out_packets INTEGER,  -- 新增出包数
                 anomaly_score FLOAT,
                 timestamp INTEGER,
+                is_false INTEGER DEFAULT 0,
                 FOREIGN KEY (flow_id) REFERENCES netflow(id)  -- 外键关联（可选，增强数据完整性）
             )
             """)
@@ -155,6 +135,40 @@ class FlowProcessor:
         finally:
             if 'conn' in locals():
                 conn.close()
+
+ # 新增：加载模型参数（从model_config表读取）
+    def load_model_config(self):
+        default_config = {
+        "base_threshold": 0.4,
+        "block_threshold": 0.8,
+        "check_interval": 5,
+        "batch_size": 100,
+        "keep_days": 7,
+        "alert_cache_threshold": 20
+    }
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+        # 先检查model_config表是否存在
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='model_config';")
+            if not cursor.fetchone():
+                logging.warning("model_config表不存在，使用默认参数")
+                conn.close()
+                return default_config
+        
+        # 表存在则读取参数
+            cursor.execute("SELECT param_name, param_value FROM model_config")
+            results = cursor.fetchall()
+            conn.close()
+        
+            for name, value in results:
+                if name in default_config:
+                    default_config[name] = value
+            logging.info(f"成功加载模型参数：{default_config}")
+            return default_config
+        except Exception as e:
+            logging.error(f"加载模型参数失败，使用默认值：{str(e)}")
+            return default_config
 
     def get_new_flows(self):
         """获取未处理的新流量（解决重复检测）"""
@@ -319,9 +333,9 @@ class FlowProcessor:
             if len(self.recent_anomaly_scores) > 10:
             # 取最近分数的75分位数 + 0.1（避免误报），上限0.8（避免漏报）
                 threshold = np.percentile(self.recent_anomaly_scores, 75) + 0.1
-                anomaly_threshold = min(threshold, 0.8)
+                anomaly_threshold = min(threshold, self.base_threshold)
             else:
-                anomaly_threshold = 0.4  # 初始阶段用固定阈值
+                anomaly_threshold = self.base_threshold  # 初始阶段用固定阈值
     
             # 记录当前批次的异常分数（只保留最近100个）
             self.recent_anomaly_scores.extend(scores)
@@ -335,6 +349,7 @@ class FlowProcessor:
             
             for i, (info, prob, pred) in enumerate(zip(flow_info, scores, predictions)):
                 logging.debug(f"处理异常记录{i+1} | info内容：{info} | 是否包含flow_id：{'flow_id' in info}")
+                
                 if prob >= anomaly_threshold:  # 用概率判断更准确
                     anomaly_count += 1
                     cursor.execute("""
@@ -353,10 +368,14 @@ class FlowProcessor:
 6. 发生时间：{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(info['timestamp']))}
 """
                     self.anomaly_cache.append(alert_content)  # 缓存到列表
-                    logging.info(f"已将异常ID:{info['flow_id']}加入缓存 | 当前缓存异常数：{len(self.anomaly_cache)}")
-         
+                                        # 高风险异常时调用阻断函数
+                    if prob >= self.block_threshold:
+                        self.block_ip_via_router(info['src_ip'])  # 调用新增的阻断函数
+
             conn.commit()
             logging.info(f"成功插入 {anomaly_count} 条异常记录到anomaly_records表")
+
+            
         except Exception as e:
             current_i = i if 'i' in locals() else '未执行到循环'
             current_info = info if 'info' in locals() else '无'
@@ -497,6 +516,85 @@ class FlowProcessor:
         finally:
             if 'conn' in locals():
                 conn.close()
+
+                    # 新增：路由器SSH阻断函数（写在FlowProcessor类内）
+    def block_ip_via_router(self, src_ip):
+        router_config = {
+            'host': '192.168.10.1',
+            'username': 'cisco',
+            'password': 'cisco'
+        }
+        try:
+            ssh = paramiko.SSHClient()
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            ssh.connect(**router_config, timeout=10)
+            
+            commands = [
+                'enable',
+                'cisco',
+                'configure terminal',
+                f'access-list 100 deny ip host {src_ip} any',
+                'access-list 100 permit ip any any',
+                'interface FastEthernet1/0',
+                'ip access-group 100 in',
+                'exit',
+                'write memory'
+            ]
+            ssh.exec_command('\n'.join(commands))
+            ssh.close()
+            logging.info(f"GNS3路由器已阻断IP：{src_ip}")
+
+                    # 新增：写入阻断记录到blocked_ips表
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("""
+            INSERT OR IGNORE INTO blocked_ips (ip, reason, block_time)
+            VALUES (?, ?, strftime('%s', 'now'))
+        """, (src_ip, '模型自动阻断（高风险异常）'))
+            conn.commit()
+            conn.close()
+            logging.info(f"阻断记录已写入数据库：{src_ip}")
+
+            threading.Timer(3600, self.unblock_ip_via_router, args=(src_ip,)).start()
+        except Exception as e:
+            logging.error(f"GNS3路由器阻断失败：{str(e)}")
+
+    # 新增：路由器SSH解除阻断函数（写在FlowProcessor类内）
+    def unblock_ip_via_router(self, src_ip):
+        router_config = {
+            'host': '192.168.10.1',
+            'username': 'cisco',
+            'password': 'cisco'
+        }
+        try:
+            ssh = paramiko.SSHClient()
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            ssh.connect(**router_config, timeout=10)
+            
+            commands = [
+                'enable',
+                'cisco',
+                'configure terminal',
+                f'no access-list 100 deny ip host {src_ip} any',
+                'write memory'
+            ]
+            ssh.exec_command('\n'.join(commands))
+            ssh.close()
+            logging.info(f"已解除GNS3路由器对IP {src_ip} 的阻断")
+
+                    # 新增：从blocked_ips表删除记录
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM blocked_ips WHERE ip = ?", (src_ip,))
+            conn.commit()
+            conn.close()
+            logging.info(f"阻断记录已从数据库删除：{src_ip}")
+
+        except Exception as e:
+            logging.error(f"GNS3路由器解除阻断失败：{str(e)}")
+
+
+
 
 # 启动处理器
 if __name__ == "__main__":

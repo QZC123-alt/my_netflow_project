@@ -65,15 +65,9 @@ import logging
 # 添加项目路径
 sys.path.append(os.path.dirname(__file__))
 
-"""def start_packet_capture():
-    启动NetFlow数据收集（使用您的collector_v9.py）
-    try:
-        from data_collection.netflow_server import start_netflow_server
-        print("启动NetFlow收集器...")
-        start_netflow_server()
-    except Exception as e:
-        print(f"启动NetFlow收集器失败: {e}")"""
-# main.py 中保留其他逻辑，仅替换 start_packet_capture 函数
+from utils.log_utils import get_module_logger
+logger = get_module_logger("main")  # 日志文件
+
 def start_packet_capture():
     """
     启动NetFlow v9收集服务（生产级版本）
@@ -213,7 +207,8 @@ def start_web_interface():
     try:
         # 方法1：直接启动Flask服务器
         from api.flask_server import app
-        
+        from api.flask_server import init_db_table
+        init_db_table()
         print("Web服务器启动中...")
         # 启动Flask服务器，禁用reloader避免在子线程中出现问题
         app.run(host='0.0.0.0', port=8000, debug=True, use_reloader=False)

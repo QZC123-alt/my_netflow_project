@@ -15,11 +15,9 @@ BATCH_WRITE_THRESHOLD = 50
 FLOW_CACHE = []
 CACHE_LOCK = Lock()
 # 日志配置
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - [CollectorV9] - %(levelname)s - %(message)s',
-    handlers=[logging.FileHandler('collector_v9.log'), logging.StreamHandler()]
-)
+from utils.log_utils import get_module_logger
+logger = get_module_logger("collector_v9")  # 日志文件：collector.log
+
 
 # ===================== 数据库初始化 =====================
 def createdb():

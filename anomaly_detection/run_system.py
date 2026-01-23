@@ -9,16 +9,8 @@ import logging
 import platform  # 新增：系统兼容性
 import numpy as np 
 
-# 配置日志（同时输出到控制台和文件，兼容Windows路径）
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler(os.path.join("logs", "run_system.log"), encoding='utf-8', mode='a')  # 追加模式避免覆盖
-    ]
-)
-os.makedirs("logs", exist_ok=True)
+from utils.log_utils import get_module_logger
+logger = get_module_logger("run_system")  # 日志文件
 
 # -------------------------- 路径配置（跨系统兼容） --------------------------
 # 修复：改为项目根目录的data/models（不再用anomaly_detection子目录）

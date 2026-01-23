@@ -9,6 +9,11 @@ from flask import make_response
 from api.anomaly_routes import anomaly_bp
 import time  
 
+from data_integration.flow_processor import FlowProcessor  # 导入FlowProcessor类
+
+from utils.log_utils import get_module_logger
+logger = get_module_logger("flask_server")  # 日志文件
+
 # 创建Flask应用
 app = Flask(__name__)
 CORS(app)
@@ -59,13 +64,64 @@ def get_db_connection():
         raise  # 抛出异常，让接口层捕获
 
 def init_db_table():
-    """初始化netflow表，确保表结构存在"""
+    """初始化必要表：netflow(补字段) + anomaly_records + blocked_ips + model_config"""
     try:
         conn = get_db_connection()
-      
+        cursor = conn.cursor()
+
+        # 1. 补全netflow表的is_processed字段（已有逻辑保留）
+        cursor.execute("PRAGMA table_info(netflow);")
+        columns = [col[1] for col in cursor.fetchall()]
+        if 'is_processed' not in columns:
+            cursor.execute("ALTER TABLE netflow ADD COLUMN is_processed INTEGER DEFAULT 0;")
+            logger.info(f"已为netflow表添加is_processed字段")
+
+        # 2. 补全anomaly_records表的is_false字段（已有逻辑保留）
+        cursor.execute("PRAGMA table_info(anomaly_records);")
+        anomaly_columns = [col[1] for col in cursor.fetchall()]
+        if "is_false" not in anomaly_columns:
+            cursor.execute("ALTER TABLE anomaly_records ADD COLUMN is_false INTEGER DEFAULT 0;")
+
+        # 3. 创建blocked_ips表（阻断IP记录）
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS blocked_ips (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ip TEXT NOT NULL UNIQUE,
+                reason TEXT NOT NULL,
+                block_time INTEGER NOT NULL,
+                UNIQUE(ip)
+            )
+        """)
+
+        # 4. 创建model_config表（模型参数配置，无冗余）
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS model_config (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                param_name TEXT NOT NULL UNIQUE,
+                param_value REAL NOT NULL,
+                description TEXT,
+                update_time INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+            )
+        """)
+
+        # 插入默认模型参数（首次启动自动填充）
+        default_params = [
+            ("base_threshold", 0.4, "异常概率基准阈值（动态阈值的基础）"),
+            ("block_threshold", 0.8, "高风险阻断阈值（超过则自动阻断IP）"),
+            ("check_interval", 5, "检测间隔（秒）"),
+            ("batch_size", 100, "批次处理大小（一次处理多少条流量）"),
+            ("keep_days", 7, "数据保留天数（清理旧数据）"),
+            ("alert_cache_threshold", 20, "异常缓存告警阈值")
+        ]
+        for name, value, desc in default_params:
+            cursor.execute("""
+                INSERT OR IGNORE INTO model_config (param_name, param_value, description)
+                VALUES (?, ?, ?)
+            """, (name, value, desc))
+
         conn.commit()
         conn.close()
-     
+        logger.info("初始化完成：4张核心表（netflow补字段+anomaly_records+blocked_ips+model_config）")
     except sqlite3.Error as e:
         app.logger.error(f"初始化数据库表失败：{str(e)}")
         raise
@@ -587,6 +643,183 @@ def get_recent_anomalies():
     except Exception as e:
         app.logger.error(f"获取最近异常失败：{str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/anomaly/mark_false', methods=['POST'])
+def mark_false():
+    data = request.get_json()
+    anomaly_id = data.get("anomaly_id")
+    src_ip = data.get("src_ip")
+    
+    conn = sqlite3.connect("netflow.db")
+    cursor = conn.cursor()
+    # 1. 标记为误报（is_false=1）
+    cursor.execute("UPDATE anomaly_records SET is_false=1 WHERE id=?", (anomaly_id,))
+    # 2. 解除IP阻断
+    processor = FlowProcessor()
+    processor.unblock_ip_via_router(src_ip)
+    
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+# ========== 系统配置接口 ==========
+@app.route('/api/system/config', methods=['GET'])
+def get_system_config():
+    """获取系统配置（从数据库/配置文件读）"""
+    config = {
+        "highRiskThreshold": 0.8,
+        "midRiskThreshold": 0.6,
+        "refreshInterval": 30
+    }
+    return jsonify({"success": True, "data": config})
+
+@app.route('/api/system/config', methods=['POST'])
+def save_system_config():
+    """保存系统配置（写到数据库/配置文件）"""
+    data = request.get_json()
+    # 实际项目中要把data存到数据库或config.ini
+    return jsonify({"success": True, "msg": "配置保存成功"})
+
+# ========== 系统状态接口 ==========
+@app.route('/api/system/status', methods=['GET'])
+def get_system_status():
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # 1. 统计今日异常数
+        today = datetime.now().strftime('%Y-%m-%d')
+        cursor.execute("""
+            SELECT COUNT(*) as todayAnomalyCount 
+            FROM anomaly_records 
+            WHERE DATE(timestamp, 'unixepoch') = ?
+        """, (today,))
+        today_anomaly = cursor.fetchone()['todayAnomalyCount']
+
+        # 2. 统计阻断IP数
+        cursor.execute("SELECT COUNT(*) as blockedIpCount FROM blocked_ips")
+        blocked_ips = cursor.fetchone()['blockedIpCount']
+
+        # 3. 统计数据库大小（新增：更实用）
+        cursor.execute("PRAGMA page_count")
+        page_count = cursor.fetchone()[0]
+        cursor.execute("PRAGMA page_size")
+        page_size = cursor.fetchone()[0]
+        db_size = page_count * page_size  # 数据库总字节数
+
+        conn.close()
+
+        # 4. 计算系统运行时长（模拟：实际可存启动时间到model_config）
+        run_time = "3小时45分"  # 若需真实值，可在main.py启动时记录时间戳到表中
+
+        return jsonify({
+            "success": True,
+            "data": {
+                "runTime": run_time,
+                "blockedIpCount": blocked_ips,
+                "todayAnomalyCount": today_anomaly,
+                "dbSize": db_size  # 新增：数据库容量
+            }
+        }), 200
+    except Exception as e:
+        app.logger.error(f"获取系统状态失败：{str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "data": {}
+        }), 500
+
+
+
+# ========== 阻断IP接口 ==========
+@app.route('/api/blocked-ips', methods=['GET'])
+def get_blocked_ips():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    # 假设你有blocked_ips表，存储真实阻断记录
+    cursor.execute("""
+        SELECT ip, reason, block_time as blockTime 
+        FROM blocked_ips 
+        ORDER BY block_time DESC
+    """)
+    results = cursor.fetchall()
+    conn.close()
+    # 转成前端需要的格式
+    ips = [{k: row[k] for k in row.keys()} for row in results]
+    return jsonify({"success": True, "data": ips})
+
+# 手动阻断IP（同步路由器+写表）
+@app.route('/api/blocked-ips', methods=['POST'])
+def add_blocked_ip():
+    try:
+        data = request.get_json()
+        ip = data.get('ip')
+        reason = data.get('reason', '手动阻断')
+        
+        if not ip:
+            return jsonify({"success": False, "error": "缺少IP地址"}), 400
+        
+        # 调用FlowProcessor的阻断方法（同步路由器+写表）
+        processor = FlowProcessor()
+        processor.block_ip_via_router(ip)
+        
+        return jsonify({"success": True, "msg": f"IP {ip} 阻断成功（同步路由器）"}), 200
+    except Exception as e:
+        app.logger.error(f"手动阻断IP失败：{str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+# 解除阻断IP（同步路由器+删表）
+@app.route('/api/blocked-ips/<string:ip>', methods=['DELETE'])
+def unblock_ip(ip):
+    try:
+        # 调用FlowProcessor的解除方法（同步路由器+删表）
+        processor = FlowProcessor()
+        processor.unblock_ip_via_router(ip)
+        
+        return jsonify({"success": True, "msg": f"IP {ip} 解除成功（同步路由器）"}), 200
+    except Exception as e:
+        app.logger.error(f"解除阻断IP失败：{str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+# 获取模型参数（给管理页面用）
+@app.route('/api/model/config', methods=['GET'])
+def get_model_config():
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT param_name, param_value, description FROM model_config")
+        results = cursor.fetchall()
+        conn.close()
+        # 转成前端需要的格式
+        config = {}
+        for row in results:
+            config[row['param_name']] = row['param_value']
+        return jsonify({"success": True, "data": config}), 200
+    except Exception as e:
+        app.logger.error(f"获取模型参数失败：{str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+# 保存模型参数（给管理页面用）
+@app.route('/api/model/config', methods=['POST'])
+def save_model_config():
+    try:
+        data = request.get_json()
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        # 更新参数（循环更新所有传过来的参数）
+        for param_name, param_value in data.items():
+            cursor.execute("""
+                UPDATE model_config 
+                SET param_value = ?, update_time = strftime('%s', 'now') 
+                WHERE param_name = ?
+            """, (param_value, param_name))
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True, "msg": "参数保存成功，重启系统生效"}), 200
+    except Exception as e:
+        app.logger.error(f"保存模型参数失败：{str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 # -------------------------- 启动服务 --------------------------
 if __name__ == '__main__':

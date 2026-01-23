@@ -1,0 +1,631 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>系统运维面板 - NetFlow流量检测</title>
+    <!-- 统一资源（和index/anomaly保持一致） -->
+    <script src="https://cdn.jsdelivr.net/npm/vue@2.6.14/dist/vue.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        /* 全局风格统一：和index/anomaly完全一致 */
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            margin: 0;
+            color: #333;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+
+        .navbar {
+            background: rgba(255, 255, 255, 0.95) !important;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 2px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        .card {
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            border: none;
+            background: rgba(255, 255, 255, 0.95);
+        }
+
+        .stat-card {
+            transition: all 0.3s ease;
+            cursor: default;
+        }
+
+            .stat-card:hover {
+                transform: translateY(-5px);
+                box-shadow: 0 15px 40px rgba(0, 0, 0, 0.15);
+            }
+
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 200px;
+            color: #666;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .nav-tabs {
+            border-bottom: 2px solid #eee;
+        }
+
+            .nav-tabs .nav-link {
+                border: none;
+                border-bottom: 3px solid transparent;
+                color: #666;
+                font-weight: 500;
+                padding: 12px 20px;
+            }
+
+                .nav-tabs .nav-link.active {
+                    border-bottom-color: #667eea;
+                    color: #667eea;
+                    background: transparent;
+                }
+
+        .btn {
+            border-radius: 8px;
+            padding: 8px 16px;
+            transition: all 0.2s ease;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            border-color: #667eea;
+        }
+
+            .btn-primary:hover {
+                background: #5569d1;
+                border-color: #5569d1;
+            }
+
+        .btn-danger {
+            background: #dc3545;
+            border-color: #dc3545;
+        }
+
+            .btn-danger:hover {
+                background: #bb2d3b;
+                border-color: #bb2d3b;
+            }
+
+        .alert-container {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            z-index: 1000;
+            max-width: 350px;
+        }
+
+        .status-online {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background-color: #198754;
+            margin-right: 5px;
+        }
+
+        .status-offline {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background-color: #dc3545;
+            margin-right: 5px;
+        }
+
+        .form-text {
+            color: #6c757d;
+            font-size: 0.875em;
+        }
+
+        code {
+            background-color: #f8f9fa;
+            padding: 0.2em 0.4em;
+            border-radius: 6px;
+            color: #dc3545;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <!-- 导航栏：和index/anomaly完全一致 -->
+        <nav class="navbar navbar-expand-lg navbar-light">
+            <div class="container-fluid">
+                <a class="navbar-brand" href="#">
+                    <i class="bi bi-gear-fill text-primary"></i>
+                    <strong>系统运维面板</strong>
+                </a>
+                <div class="navbar-text">
+                    <span class="status-indicator" :class="apiStatus ? 'status-online' : 'status-offline'"></span>
+                    API {{ apiStatus ? '在线' : '离线' }} | 最后操作: {{ lastOperateTime }}
+                </div>
+            </div>
+        </nav>
+
+        <!-- 提示框：和index/anomaly交互逻辑一致 -->
+        <div class="alert-container" v-if="showAlert">
+            <div class="alert alert-success alert-dismissible fade show" role="alert" v-if="alertType === 'success'">
+                <strong>成功！</strong> {{ alertMessage }}
+                <button type="button" class="btn-close" @click="showAlert = false"></button>
+            </div>
+            <div class="alert alert-danger alert-dismissible fade show" role="alert" v-if="alertType === 'error'">
+                <strong>失败！</strong> {{ alertMessage }}
+                <button type="button" class="btn-close" @click="showAlert = false"></button>
+            </div>
+        </div>
+
+        <!-- 顶部操作栏：跳转其他页面，风格统一 -->
+        <div class="container-fluid px-4 py-4">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                    <a href="index.html" class="btn btn-outline-light me-2">
+                        <i class="bi bi-arrow-left"></i> 返回总览
+                    </a>
+                    <a href="anomaly.html" class="btn btn-outline-light">
+                        <i class="bi bi-exclamation-triangle"></i> 异常记录
+                    </a>
+                </div>
+                <button class="btn btn-primary" @click="refreshAllData" :disabled="loading">
+                    <i class="bi bi-arrow-clockwise" :class="{ 'spin': loading}"></i> 刷新数据
+                </button>
+            </div>
+
+            <!-- 核心选项卡：3个实用模块（无冗余） -->
+            <div class="card mb-4">
+                <div class="card-body p-0">
+                    <ul class="nav nav-tabs px-4 pt-3">
+                        <li class="nav-item">
+                            <a class="nav-link active" data-bs-toggle="tab" href="#systemConfig">
+                                <i class="bi bi-cog"></i> 系统配置
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" data-bs-toggle="tab" href="#modelConfig">
+                                <i class="bi bi-sliders"></i> 模型参数配置
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" data-bs-toggle="tab" href="#blockedIps">
+                                <i class="bi bi-ban"></i> 阻断IP管理
+                            </a>
+                        </li>
+                    </ul>
+
+                    <div class="tab-content p-4">
+                        <!-- 1. 系统配置：检测阈值、刷新间隔 -->
+                        <div class="tab-pane fade show active" id="systemConfig">
+                            <div class="row g-4">
+                                <div class="col-lg-6">
+                                    <div class="stat-card card p-4">
+                                        <h5 class="card-title mb-3"><i class="bi bi-sliders text-primary"></i> 检测阈值配置</h5>
+                                        <form @submit.prevent="saveSystemConfig">
+                                            <div class="mb-3">
+                                                <label class="form-label">高风险异常阈值 (0-1)</label>
+                                                <input type="number" v-model.number="systemConfig.highRiskThreshold" step="0.01" min="0" max="1" class="form-control" required>
+                                                <div class="form-text">异常概率≥该值标记为高风险（默认0.8）</div>
+                                            </div>
+                                            <div class="mb-3">
+                                                <label class="form-label">中风险异常阈值 (0-1)</label>
+                                                <input type="number" v-model.number="systemConfig.midRiskThreshold" step="0.01" min="0" max="1" class="form-control" required>
+                                                <div class="form-text">异常概率≥该值且高风险阈值，标记为中风险（默认0.6）</div>
+                                            </div>
+                                            <div class="mb-3">
+                                                <label class="form-label">数据刷新间隔 (秒)</label>
+                                                <input type="number" v-model.number="systemConfig.refreshInterval" min="10" max="300" class="form-control" required>
+                                                <div class="form-text">前端页面自动刷新间隔（默认30秒）</div>
+                                            </div>
+                                            <button type="submit" class="btn btn-primary" :disabled="loading">
+                                                <i class="bi bi-save"></i> 保存配置
+                                            </button>
+                                        </form>
+                                    </div>
+                                </div>
+                                <div class="col-lg-6">
+                                    <div class="stat-card card p-4">
+                                        <h5 class="card-title mb-3"><i class="bi bi-server text-primary"></i> 系统状态</h5>
+                                        <div v-if="loading" class="loading">
+                                            <div class="spinner"></div>
+                                        </div>
+                                        <div v-else class="row g-3">
+                                            <div class="col-6">
+                                                <div class="bg-light rounded p-3 text-center">
+                                                    <h6 class="text-muted mb-1">运行时长</h6>
+                                                    <h4 class="text-primary">{{ systemStatus.runTime }}</h4>
+                                                </div>
+                                            </div>
+                                            <div class="col-6">
+                                                <div class="bg-light rounded p-3 text-center">
+                                                    <h6 class="text-muted mb-1">阻断IP数</h6>
+                                                    <h4 class="text-primary">{{ systemStatus.blockedIpCount }}</h4>
+                                                </div>
+                                            </div>
+                                            <div class="col-6">
+                                                <div class="bg-light rounded p-3 text-center">
+                                                    <h6 class="text-muted mb-1">今日异常数</h6>
+                                                    <h4 class="text-primary">{{ systemStatus.todayAnomalyCount }}</h4>
+                                                </div>
+                                            </div>
+                                            <div class="col-6">
+                                                <div class="bg-light rounded p-3 text-center">
+                                                    <h6 class="text-muted mb-1">数据库容量</h6>
+                                                    <h4 class="text-primary">{{ formatBytes(systemStatus.dbSize) }}</h4>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 2. 模型参数配置：适配你的模型检测逻辑 -->
+                        <div class="tab-pane fade" id="modelConfig">
+                            <div class="card p-4">
+                                <h5 class="card-title mb-3"><i class="bi bi-gear text-primary"></i> 模型检测核心参数</h5>
+                                <form @submit.prevent="saveModelConfig">
+                                    <div class="row g-3">
+                                        <div class="col-lg-6">
+                                            <label class="form-label">异常概率基准阈值 (0-1)</label>
+                                            <input type="number" v-model.number="modelParams.base_threshold" step="0.01" min="0" max="1" class="form-control" required>
+                                            <div class="form-text">动态阈值的基础（初始默认0.4，模型自动调整的基准）</div>
+                                        </div>
+                                        <div class="col-lg-6">
+                                            <label class="form-label">高风险阻断阈值 (0-1)</label>
+                                            <input type="number" v-model.number="modelParams.block_threshold" step="0.01" min="0" max="1" class="form-control" required>
+                                            <div class="form-text">超过该值自动阻断IP（默认0.8，与系统配置高风险阈值联动）</div>
+                                        </div>
+                                        <div class="col-lg-6">
+                                            <label class="form-label">模型检测间隔 (秒)</label>
+                                            <input type="number" v-model.number="modelParams.check_interval" min="1" max="60" class="form-control" required>
+                                            <div class="form-text">后端模型多久查询一次新流量（默认5秒）</div>
+                                        </div>
+                                        <div class="col-lg-6">
+                                            <label class="form-label">批次处理大小</label>
+                                            <input type="number" v-model.number="modelParams.batch_size" min="10" max="500" class="form-control" required>
+                                            <div class="form-text">模型一次处理多少条流量数据（默认100）</div>
+                                        </div>
+                                        <div class="col-lg-6">
+                                            <label class="form-label">数据保留天数</label>
+                                            <input type="number" v-model.number="modelParams.keep_days" min="1" max="30" class="form-control" required>
+                                            <div class="form-text">数据库自动清理超过该天数的旧数据（默认7天）</div>
+                                        </div>
+                                        <div class="col-lg-6">
+                                            <label class="form-label">异常缓存告警阈值</label>
+                                            <input type="number" v-model.number="modelParams.alert_cache_threshold" min="5" max="50" class="form-control" required>
+                                            <div class="form-text">缓存异常数超过该值立即发告警（默认20条）</div>
+                                        </div>
+                                        <div class="col-lg-12 text-right">
+                                            <button type="submit" class="btn btn-primary" :disabled="loading">
+                                                <<i class="bi bi-save"></</i> 保存参数（重启系统生效）
+                                            </button>
+                                        </div>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+
+                        <!-- 3. 阻断IP管理：真实数据+路由器同步 -->
+                        <div class="tab-pane fade" id="blockedIps">
+                            <!-- 手动阻断IP表单 -->
+                            <div class="card mb-3 p-3">
+                                <h5 class="card-title mb-3"><i class="bi bi-plus-circle text-primary"></i> 手动阻断IP</h5>
+                                <form @submit.prevent="addBlockedIp">
+                                    <div class="row g-3">
+                                        <div class="col-lg-8">
+                                            <label class="form-label">IP地址</label>
+                                            <input type="text" v-model="newBlockedIp" class="form-control" placeholder="如：192.168.1.100" required>
+                                            <div class="form-text">输入需要阻断的IP，点击阻断后同步路由器ACL配置</div>
+                                        </div>
+                                        <div class="col-lg-4">
+                                            <label class="form-label">&nbsp;</label>
+                                            <button type="submit" class="btn btn-danger w-100" :disabled="loading">
+                                                <<i class="bi bi-ban"></</i> 阻断该IP（同步路由器）
+                                            </button>
+                                        </div>
+                                    </div>
+                                </form>
+                            </div>
+
+                            <!-- 阻断IP列表（加载真实数据） -->
+                            <div class="card">
+                                <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+                                    <h5 class="mb-0"><i class="bi bi-list-ul"></i> 已阻断IP记录</h5>
+                                    <span class="badge bg-light text-dark">{{ blockedIpList.length }} 条记录</span>
+                                </div>
+                                <div class="card-body p-0">
+                                    <table class="table table-hover table-striped mb-0">
+                                        <thead class="table-dark">
+                                            <tr>
+                                                
+                                                <th>IP地址</th>
+                                                
+                                                <th>阻断原因</th>
+                                                
+                                                <th>阻断时间</th>
+                                                
+                                                <th>操作</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr v-if="loading">
+                                                <td colspan="4" class="loading"><div class="spinner"></div></td>
+                                            </tr>
+                                            <tr v-else-if="blockedIpList.length === 0">
+                                                <td colspan="4" class="loading"><i class="bi bi-info-circle me-2"></i> 暂无阻断IP记录</td>
+                                            </tr>
+                                            <tr v-for="ip in blockedIpList" :key="ip.id">
+                                                <td><code>{{ ip.ip }}</code></td>
+                                                <td>{{ ip.reason }}</td>
+                                                <td>{{ formatTime(ip.block_time) }}</td>
+                                                <td>
+                                                    <button class="btn btn-sm btn-success" @click="unblockIp(ip.ip)" :disabled="loading">
+                                                        <i class="bi bi-unlock"></i> 解除阻断（同步路由器）
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 对接真实后端API地址（和index/anomaly一致）
+        const API_BASE_URL = 'http://127.0.0.1:8000/';
+        const api = axios.create({
+            baseURL: API_BASE_URL,
+            timeout: 10000,
+            headers: { 'Content-Type': 'application/json;charset=utf-8' }
+        });
+
+        new Vue({
+            el: '#app',
+            data: {
+                loading: false,
+                apiStatus: true,
+                lastOperateTime: '--:--:--',
+                showAlert: false,
+                alertType: 'success',
+                alertMessage: '',
+
+                // 系统配置
+                systemConfig: {
+                    highRiskThreshold: 0.8,
+                    midRiskThreshold: 0.6,
+                    refreshInterval: 30
+                },
+                systemStatus: {
+                    runTime: '0小时0分',
+                    blockedIpCount: 0,
+                    todayAnomalyCount: 0,
+                    dbSize: 0
+                },
+
+                // 模型参数配置
+                modelParams: {
+                    base_threshold: 0.4,
+                    block_threshold: 0.8,
+                    check_interval: 5,
+                    batch_size: 100,
+                    keep_days: 7,
+                    alert_cache_threshold: 20
+                },
+
+                // 阻断IP管理
+                blockedIpList: [],
+                newBlockedIp: ''
+            },
+            mounted() {
+                this.refreshAllData();
+                // 启动前端自动刷新（根据系统配置的间隔）
+                this.startAutoRefresh();
+            },
+            methods: {
+                // 刷新所有真实数据
+                async refreshAllData() {
+                    this.loading = true;
+                    this.apiStatus = true;
+                    try {
+                        // 并行请求所有接口
+                        const [sysConfigRes, sysStatusRes, modelConfigRes, blockedIpRes] = await Promise.all([
+                            api.get('/api/system/config'),    // 系统配置
+                            api.get('/api/system/status'),    // 系统状态
+                            api.get('/api/model/config'),     // 模型参数
+                            api.get('/api/blocked-ips')       // 阻断IP列表
+                        ]);
+
+                        // 赋值真实数据
+                        this.systemConfig = { ...this.systemConfig, ...sysConfigRes.data.data };
+                        this.systemStatus = { ...this.systemStatus, ...sysStatusRes.data.data };
+                        this.modelParams = { ...this.modelParams, ...modelConfigRes.data.data };
+                        this.blockedIpList = blockedIpRes.data.data || [];
+
+                        // 更新操作时间
+                        this.lastOperateTime = new Date().toLocaleTimeString();
+                        this.showAlertMessage('所有数据刷新成功', 'success');
+                    } catch (err) {
+                        this.apiStatus = false;
+                        const errMsg = err.response?.data?.error || err.message || '网络异常';
+                        this.showAlertMessage(`刷新失败：${errMsg}`, 'error');
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+
+                // 保存系统配置
+                async saveSystemConfig() {
+                    this.loading = true;
+                    try {
+                        const res = await api.post('/api/system/config', this.systemConfig);
+                        if (res.data.success) {
+                            this.showAlertMessage('系统配置保存成功，实时生效', 'success');
+                            this.lastOperateTime = new Date().toLocaleTimeString();
+                            // 重启前端自动刷新（适配新间隔）
+                            this.startAutoRefresh();
+                        } else {
+                            this.showAlertMessage(res.data.msg || '保存失败', 'error');
+                        }
+                    } catch (err) {
+                        const errMsg = err.response?.data?.error || err.message;
+                        this.showAlertMessage(`保存失败：${errMsg}`, 'error');
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+
+                // 保存模型参数
+                async saveModelConfig() {
+                    this.loading = true;
+                    try {
+                        const res = await api.post('/api/model/config', this.modelParams);
+                        if (res.data.success) {
+                            this.showAlertMessage('模型参数保存成功，重启系统后生效', 'success');
+                            this.lastOperateTime = new Date().toLocaleTimeString();
+                        } else {
+                            this.showAlertMessage(res.data.msg || '保存失败', 'error');
+                        }
+                    } catch (err) {
+                        const errMsg = err.response?.data?.error || err.message;
+                        this.showAlertMessage(`保存失败：${errMsg}`, 'error');
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+
+                // 手动阻断IP（同步路由器+写表）
+                async addBlockedIp() {
+                    // IP格式校验
+                    const ipReg = /^\d+\.\d+\.\d+\.\d+$/;
+                    if (!ipReg.test(this.newBlockedIp)) {
+                        this.showAlertMessage('请输入合法的IPv4地址（如：192.168.1.100）', 'error');
+                        return;
+                    }
+
+                    // 检查是否已阻断
+                    const isBlocked = this.blockedIpList.some(item => item.ip === this.newBlockedIp);
+                    if (isBlocked) {
+                        this.showAlertMessage(`IP ${this.newBlockedIp} 已在阻断列表中，无需重复操作`, 'error');
+                        return;
+                    }
+
+                    this.loading = true;
+                    try {
+                        const res = await api.post('/api/blocked-ips', {
+                            ip: this.newBlockedIp,
+                            reason: '手动阻断'
+                        });
+                        if (res.data.success) {
+                            this.showAlertMessage(`IP ${this.newBlockedIp} 阻断成功（已同步路由器ACL）`, 'success');
+                            this.newBlockedIp = '';
+                            // 刷新阻断列表
+                            const ipRes = await api.get('/api/blocked-ips');
+                            this.blockedIpList = ipRes.data.data || [];
+                        } else {
+                            this.showAlertMessage(res.data.msg || '阻断失败', 'error');
+                        }
+                    } catch (err) {
+                        const errMsg = err.response?.data?.error || err.message;
+                        this.showAlertMessage(`阻断失败：${errMsg}`, 'error');
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+
+                // 解除阻断IP（同步路由器+删表）
+                async unblockIp(ip) {
+                    if (!confirm(`确定要解除IP ${ip} 的阻断吗？（将同步路由器ACL配置）`)) return;
+
+                    this.loading = true;
+                    try {
+                        const res = await api.delete(`/api/blocked-ips/${ip}`);
+                        if (res.data.success) {
+                            this.showAlertMessage(`IP ${ip} 解除阻断成功（已同步路由器）`, 'success');
+                            // 刷新阻断列表
+                            const ipRes = await api.get('/api/blocked-ips');
+                            this.blockedIpList = ipRes.data.data || [];
+                        } else {
+                            this.showAlertMessage(res.data.msg || '解除失败', 'error');
+                        }
+                    } catch (err) {
+                        const errMsg = err.response?.data?.error || err.message;
+                        this.showAlertMessage(`解除失败：${errMsg}`, 'error');
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+
+                // 前端自动刷新
+                startAutoRefresh() {
+                    if (this.refreshTimer) clearInterval(this.refreshTimer);
+                    this.refreshTimer = setInterval(() => {
+                        if (!this.loading) {
+                            this.refreshAllData();
+                        }
+                    }, this.systemConfig.refreshInterval * 1000);
+                },
+
+                // 通用工具方法
+                showAlertMessage(msg, type = 'success') {
+                    this.alertMessage = msg;
+                    this.alertType = type;
+                    this.showAlert = true;
+                    setTimeout(() => this.showAlert = false, 5000);
+                },
+                formatTime(timestamp) {
+                    if (!timestamp) return 'N/A';
+                    return new Date(timestamp * 1000).toLocaleString('zh-CN', {
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit'
+                    });
+                },
+                formatBytes(bytes) {
+                    if (isNaN(bytes) || bytes < 0 || !bytes) return '0 B';
+                    const k = 1024;
+                    const sizes = ['B', 'KB', 'MB', 'GB'];
+                    const i = Math.floor(Math.log(bytes) / Math.log(k));
+                    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+                }
+            },
+            beforeDestroy() {
+                // 清除自动刷新定时器
+                if (this.refreshTimer) clearInterval(this.refreshTimer);
+            }
+        });
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
