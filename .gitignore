@@ -44,9 +44,6 @@ netflow.sqlite
 netflow_data_*.csv
 *.log
 nfdump_data/
-data/
-dist/
-
 
 # 临时文件
 *.tmp

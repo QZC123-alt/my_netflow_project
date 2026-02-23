@@ -5,7 +5,7 @@ import os
 import pandas as pd
 import joblib
 from merge_cic import merge_cic_datasets
-from run_system import load_data, preprocess_data, train_model, NETFLOW_FEATURE_COLUMNS, MODEL_DIR
+from model_train import load_data, preprocess_data, train_model, NETFLOW_FEATURE_COLUMNS, MODEL_DIR
 
 # -------------------------- 测试配置 --------------------------
 TEST_CIC_DIR = "test_cic_data"  # 测试用CIC迷你数据集目录

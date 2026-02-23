@@ -8,6 +8,7 @@ from io import StringIO
 from flask import make_response
 from api.anomaly_routes import anomaly_bp
 import time  
+import sys 
 
 from data_integration.flow_processor import FlowProcessor  # 导入FlowProcessor类
 
@@ -27,36 +28,72 @@ app.register_blueprint(anomaly_bp)
 # - os.path.dirname(__file__) → api文件夹
 # - os.path.dirname(os.path.dirname(__file__)) → 项目根目录
 PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
+sys.path.append(PROJECT_ROOT)
+from config import DATABASE_PATH, FRONTEND_DIR, WEB_CONFIG
+print(f"前端文件托管路径：{FRONTEND_DIR}")
+if not os.path.exists(FRONTEND_DIR):
+    os.makedirs(FRONTEND_DIR, exist_ok=True)
+    print(f"已自动创建前端目录：{FRONTEND_DIR}")
 
-# 2. 前端文件路径：项目根目录 → web → public
-FRONTEND_DIR = os.path.join(PROJECT_ROOT, 'web', 'public')
-# 确保前端目录存在
-os.makedirs(FRONTEND_DIR, exist_ok=True)
 
 # -------------------------- 托管前端的路由（不用改） --------------------------
 # 访问前端文件（如index.html、静态资源）
 @app.route('/<path:filename>')
 def serve_frontend(filename):
-    return send_from_directory(FRONTEND_DIR, filename)
-
+    file_path = os.path.join(FRONTEND_DIR, filename)
+    if not os.path.exists(file_path):
+        error_msg = f"文件未找到：{filename}（路径：{file_path}）"
+        logger.error(error_msg)
+        return error_msg, 404
+    
+    # 核心修复：给静态文件加明确MIME类型，解决“不支持该文件类型”
+    response = make_response(send_from_directory(FRONTEND_DIR, filename))
+    if filename.endswith('.html'):
+        response.headers['Content-Type'] = 'text/html; charset=utf-8'
+        logger.info(f"返回HTML文件：{filename}")
+    elif filename.endswith('.js'):
+        response.headers['Content-Type'] = 'application/javascript; charset=utf-8'  # JS正确类型
+        logger.info(f"返回JS文件：{filename}")
+    elif filename.endswith('.css'):
+        response.headers['Content-Type'] = 'text/css; charset=utf-8'  # CSS正确类型
+        logger.info(f"返回CSS文件：{filename}")
+    elif filename.endswith(('.ico', '.png', '.jpg')):
+        # 图片/图标类型，让浏览器正确识别
+        if filename.endswith('.ico'):
+            response.headers['Content-Type'] = 'image/x-icon'
+        elif filename.endswith('.png'):
+            response.headers['Content-Type'] = 'image/png'
+        elif filename.endswith('.jpg'):
+            response.headers['Content-Type'] = 'image/jpeg'
+        logger.info(f"返回图片文件：{filename}")
+    else:
+        logger.info(f"返回静态文件：{filename}")
+    return response
 
 # 访问根路径时返回index.html
 @app.route('/')
 def index():
-   return send_from_directory(FRONTEND_DIR, 'index.html')
-   
+    index_path = os.path.join(FRONTEND_DIR, 'index.html')
+    if not os.path.exists(index_path):
+        error_msg = f"index.html未找到（路径：{index_path}）"
+        logger.error(error_msg)
+        return error_msg, 404
+    # 强制设置Content-Type为text/html（解决类型报错）
+    response = make_response(send_from_directory(FRONTEND_DIR, 'index.html'))
+    response.headers['Content-Type'] = 'text/html; charset=utf-8'
+    logger.info(f"成功返回index.html（路径：{index_path}）")
+    return response  
 
-# 数据库配置（根据你的实际路径修改，确保路径正确）
-DATABASE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)))
-DATABASE_PATH = os.path.join(DATABASE_DIR, 'netflow.db')
-# 确保数据库目录存在
-os.makedirs(DATABASE_DIR, exist_ok=True)
 
 # -------------------------- 数据库工具函数 --------------------------
 def get_db_connection():
     """获取数据库连接，自动适配字段名访问"""
     try:
-        conn = sqlite3.connect(DATABASE_PATH)
+        conn = sqlite3.connect(
+            DATABASE_PATH,
+            check_same_thread=False,  # 允许跨线程使用
+            timeout=10.0  # 锁等待时间加长，避免并发锁冲突
+        )
         conn.row_factory = sqlite3.Row  # 让查询结果可以用row['字段名']访问
         return conn
     except sqlite3.Error as e:
@@ -68,13 +105,48 @@ def init_db_table():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-
+        # 核心流数据表（包含NetFlow v9核心字段）
+        cursor.execute('''
+    CREATE TABLE IF NOT EXISTS netflow (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        in_bytes INTEGER,
+        out_bytes INTEGER DEFAULT 0,
+        in_packets INTEGER,
+        out_packets INTEGER DEFAULT 0,
+        protocol INTEGER,
+        src_port INTEGER,
+        dst_port INTEGER,
+        src_ip TEXT,
+        dst_ip TEXT,
+        timestamp INTEGER,
+        first_switched INTEGER DEFAULT 0,  -- 新增
+        last_switched INTEGER DEFAULT 0,   -- 新增
+        tcp_flags INTEGER DEFAULT 0,
+        is_processed INTEGER DEFAULT 0  -- 新增这一行，默认值0
+    )
+    ''')
         # 1. 补全netflow表的is_processed字段（已有逻辑保留）
         cursor.execute("PRAGMA table_info(netflow);")
         columns = [col[1] for col in cursor.fetchall()]
         if 'is_processed' not in columns:
             cursor.execute("ALTER TABLE netflow ADD COLUMN is_processed INTEGER DEFAULT 0;")
             logger.info(f"已为netflow表添加is_processed字段")
+
+        cursor.execute('''
+    CREATE TABLE IF NOT EXISTS anomaly_records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        flow_id INTEGER NOT NULL,  -- 建表时直接添加，关联netflow的id
+        src_ip TEXT,
+        dst_ip TEXT,  -- 新增dst_ip字段
+        in_bytes INTEGER,
+        out_bytes INTEGER,  -- 新增出字节数
+        in_packets INTEGER,
+        out_packets INTEGER,  -- 新增出包数
+        anomaly_score FLOAT,
+        timestamp INTEGER,
+        FOREIGN KEY (flow_id) REFERENCES netflow(id)  -- 外键关联（可选，增强数据完整性）
+    )
+    ''')
 
         # 2. 补全anomaly_records表的is_false字段（已有逻辑保留）
         cursor.execute("PRAGMA table_info(anomaly_records);")
@@ -188,7 +260,7 @@ def realtime_flows():
             SELECT src_ip, dst_ip, protocol, src_port, dst_port, in_bytes, in_packets, timestamp
             FROM netflow
             ORDER BY timestamp DESC
-            LIMIT 100
+            LIMIT 500
         """)
         results = cursor.fetchall()
         conn.close()
@@ -208,49 +280,44 @@ def realtime_flows():
 # 3. IP历史趋势接口（前端请求：/api/stats_ip/date_history）
 @app.route('/api/stats_ip/date_history', methods=['GET'])
 def stats_ip_date_history():
-    """
-    获取TOP IP流量数据（真实NetFlow数据）
-    支持参数：
-    - top_n: 返回前N个IP（默认10）
-    - hours: 统计最近N小时的数据（默认24，传0则统计所有）
-    - type: src/dst（默认src）
-    """
     try:
-        # 适配前端传参：top_limit→top_n，days→hours（1天=24小时）
-        top_n = int(request.args.get('top_n', request.args.get('top_limit', 10)))
-        hours = int(request.args.get('hours', request.args.get('days', 1) * 24))
-        ip_type = request.args.get('type', 'src')  # 接收type参数
-        
+        top_n = int(request.args.get('top_n', 5))
+        hours = int(request.args.get('hours', 168))  # 默认7天
+        ip_type = request.args.get('type', 'src')
         conn = get_db_connection()
         cursor = conn.cursor()
-
-        # 修正：按IP类型（src/dst）统计，且返回按日期分组的history
-        # 处理hours=0的情况（统计所有数据）
-        if ip_type == 'src':
-            base_sql = """
-                SELECT src_ip AS ip, DATE(timestamp, 'unixepoch') AS date, SUM(in_bytes) AS bytes
-                FROM netflow
-            """
-        else:
-            base_sql = """
-                SELECT dst_ip AS ip, DATE(timestamp, 'unixepoch') AS date, SUM(in_bytes) AS bytes
-                FROM netflow
-            """
         
-        # 添加时间条件（hours=0时不限制）
+        # 核心修复：只调用1次fetchone()，避免None时下标错误
+        cursor.execute("SELECT timestamp FROM netflow LIMIT 1;")
+        sample_row = cursor.fetchone()  # 只调用1次，存到变量
+        sample_ts = sample_row['timestamp'] if sample_row else 0  # 先判断是否为None
+        ts_divisor = 1000 if sample_ts > 1e12 else 1  # 毫秒级→除以1000转秒级
+        logger.info(f"检测到timestamp单位：{'毫秒级' if ts_divisor==1000 else '秒级'}（除数：{ts_divisor}）")
+        
+        # SQL查询（适配timestamp单位）
+        base_sql = f"""
+            SELECT {ip_type}_ip AS ip,
+                   DATE(timestamp / {ts_divisor}, 'unixepoch') AS date,
+                   SUM(in_bytes) AS bytes
+            FROM netflow
+            WHERE 1=1
+            
+        """
         params = []
         if hours > 0:
-            base_sql += " WHERE timestamp >= ?"
-            start_time = datetime.now() - timedelta(hours=hours)
-            start_time_ts = int(start_time.timestamp())  # 转为整数时间戳（如1716205800）
-            params.append(start_time_ts)  # 传入整数参数，匹配表中timestamp字段类型
+            start_time_ts = int((datetime.now() - timedelta(hours=hours)).timestamp())
+            base_sql += f" AND timestamp / {ts_divisor} >= ?"
+            params.append(start_time_ts)
+            logger.info(f"统计条件：最近{hours}小时（时间戳≥{start_time_ts}）")
         
-        base_sql += " GROUP BY ip, DATE(timestamp, 'unixepoch') ORDER BY bytes DESC"
+        # 按日期升序，确保前端时间轴正确
+        base_sql += f" GROUP BY ip, DATE(timestamp / {ts_divisor}, 'unixepoch') ORDER BY date ASC"
         cursor.execute(base_sql, params)
         results = cursor.fetchall()
         conn.close()
-
-        # 重构数据结构：匹配前端期望的 {ip, history: [{date, bytes}]}
+        logger.info(f"IP趋势接口查询到{len(results)}条原始数据")
+        
+        # 重构数据结构（前端图表友好格式）
         ip_map = {}
         for row in results:
             ip = row['ip']
@@ -258,41 +325,26 @@ def stats_ip_date_history():
                 ip_map[ip] = {'ip': ip, 'history': []}
             ip_map[ip]['history'].append({
                 'date': row['date'],
-                'bytes': row['bytes']
+                'bytes': row['bytes'],
+                'bytes_mb': round(row['bytes'] / 1024 / 1024, 2)  # 新增MB单位，方便前端显示
             })
         
-        # 取TOP N IP
-        real_data = sorted(ip_map.values(), 
-                          key=lambda x: sum(h['bytes'] for h in x['history']), 
-                          reverse=True)[:top_n]
-
+        # 取TOP N IP（按总流量排序）
+        real_data = sorted(
+            ip_map.values(),
+            key=lambda x: sum(h['bytes'] for h in x['history']),
+            reverse=True
+        )[:top_n]
+        logger.info(f"IP趋势接口返回TOP {top_n} IP数据")
         return jsonify({
             'success': True,
             'data': real_data,
-            'count': len(real_data)
+            'count': len(real_data),
+            'ts_divisor': ts_divisor  # 告诉前端timestamp单位
         }), 200
-
-    except sqlite3.Error as e:
-        app.logger.error(f"数据库查询失败：{str(e)}")
-        return jsonify({
-            'success': False,
-            'error': f"数据库错误：{str(e)}",
-            'data': []
-        }), 500
-    except ValueError as e:
-        app.logger.error(f"参数错误：{str(e)}")
-        return jsonify({
-            'success': False,
-            'error': f"参数错误：{str(e)}",
-            'data': []
-        }), 400
     except Exception as e:
-        app.logger.error(f"接口未知错误：{str(e)}")
-        return jsonify({
-            'success': False,
-            'error': f"服务器错误：{str(e)}",
-            'data': []
-        }), 500
+        logger.error(f"IP趋势接口错误：{str(e)}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 # 4.导出 
 @app.route('/api/export/all_stats', methods=['GET'])
@@ -650,7 +702,7 @@ def mark_false():
     anomaly_id = data.get("anomaly_id")
     src_ip = data.get("src_ip")
     
-    conn = sqlite3.connect("netflow.db")
+    conn = sqlite3.connect(DATABASE_PATH)
     cursor = conn.cursor()
     # 1. 标记为误报（is_false=1）
     cursor.execute("UPDATE anomaly_records SET is_false=1 WHERE id=?", (anomaly_id,))
@@ -663,22 +715,56 @@ def mark_false():
     return jsonify({"success": True})
 
 # ========== 系统配置接口 ==========
-@app.route('/api/system/config', methods=['GET'])
-def get_system_config():
-    """获取系统配置（从数据库/配置文件读）"""
-    config = {
-        "highRiskThreshold": 0.8,
-        "midRiskThreshold": 0.6,
-        "refreshInterval": 30
-    }
-    return jsonify({"success": True, "data": config})
+@app.route('/api/system/config', methods=['GET', 'POST'])
+def system_config():
+    if request.method == 'GET':
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT param_name, param_value 
+                FROM model_config 
+                WHERE param_name IN ('highRiskThreshold', 'midRiskThreshold', 'refreshInterval')
+            """)
+            results = cursor.fetchall()
+            conn.close()
 
-@app.route('/api/system/config', methods=['POST'])
-def save_system_config():
-    """保存系统配置（写到数据库/配置文件）"""
-    data = request.get_json()
-    # 实际项目中要把data存到数据库或config.ini
-    return jsonify({"success": True, "msg": "配置保存成功"})
+            config = {
+                "highRiskThreshold": 0.8,
+                "midRiskThreshold": 0.6,
+                "refreshInterval": 30
+            }
+            for row in results:
+                config[row['param_name']] = float(row['param_value'])
+            logger.info(f"获取系统配置：{config}")
+            return jsonify({'success': True, 'data': config}), 200
+        except Exception as e:
+            logger.error(f"获取系统配置错误：{str(e)}")
+            return jsonify({'success': True, 'data': config}), 200  # 兜底返回默认值
+
+    if request.method == 'POST':
+        try:
+            data = request.get_json()
+            conn = get_db_connection()
+            cursor = conn.cursor()
+
+            # 更新配置到数据库
+            for param_name, param_value in data.items():
+                cursor.execute("""
+                    INSERT OR REPLACE INTO model_config (param_name, param_value, description)
+                    VALUES (?, ?, ?)
+                """, (param_name, param_value, f"系统配置：{param_name}"))
+            
+            conn.commit()
+            conn.close()
+            logger.info(f"保存系统配置：{data}")
+            return jsonify({'success': True, 'msg': "配置保存成功"}), 200
+        except Exception as e:
+            logger.error(f"保存系统配置错误：{str(e)}")
+            return jsonify({'success': False, 'error': str(e)}), 500
+
+
+
 
 # ========== 系统状态接口 ==========
 @app.route('/api/system/status', methods=['GET'])
@@ -686,100 +772,124 @@ def get_system_status():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-
         # 1. 统计今日异常数
-        today = datetime.now().strftime('%Y-%m-%d')
+        
+        today_start = int(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
         cursor.execute("""
             SELECT COUNT(*) as todayAnomalyCount 
             FROM anomaly_records 
-            WHERE DATE(timestamp, 'unixepoch') = ?
-        """, (today,))
+            WHERE timestamp >= ?
+        """, (today_start,))
         today_anomaly = cursor.fetchone()['todayAnomalyCount']
-
         # 2. 统计阻断IP数
         cursor.execute("SELECT COUNT(*) as blockedIpCount FROM blocked_ips")
         blocked_ips = cursor.fetchone()['blockedIpCount']
-
-        # 3. 统计数据库大小（新增：更实用）
+        # 3. 统计数据库大小
         cursor.execute("PRAGMA page_count")
         page_count = cursor.fetchone()[0]
         cursor.execute("PRAGMA page_size")
         page_size = cursor.fetchone()[0]
-        db_size = page_count * page_size  # 数据库总字节数
-
+        db_size = page_count * page_size
+        # 4. 计算系统运行时长（移到conn.close()之前）
+        cursor.execute("SELECT param_value FROM model_config WHERE param_name = 'start_time'")
+        start_time_row = cursor.fetchone()
+        if start_time_row:
+            start_time_ts = int(start_time_row['param_value'])
+            run_seconds = int(time.time()) - start_time_ts
+            run_time = f"{run_seconds//3600}小时{(run_seconds%3600)//60}分"
+        else:
+            run_time = "0小时0分"  # 兜底
+        # 最后关闭conn
         conn.close()
-
-        # 4. 计算系统运行时长（模拟：实际可存启动时间到model_config）
-        run_time = "3小时45分"  # 若需真实值，可在main.py启动时记录时间戳到表中
-
         return jsonify({
             "success": True,
             "data": {
                 "runTime": run_time,
                 "blockedIpCount": blocked_ips,
                 "todayAnomalyCount": today_anomaly,
-                "dbSize": db_size  # 新增：数据库容量
+                "dbSize": db_size
             }
         }), 200
     except Exception as e:
         app.logger.error(f"获取系统状态失败：{str(e)}")
-        return jsonify({
-            "success": False,
-            "error": str(e),
-            "data": {}
-        }), 500
+        return jsonify({"success": False, "error": str(e), "data": {}}), 500
 
 
 
-# ========== 阻断IP接口 ==========
-@app.route('/api/blocked-ips', methods=['GET'])
-def get_blocked_ips():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    # 假设你有blocked_ips表，存储真实阻断记录
-    cursor.execute("""
-        SELECT ip, reason, block_time as blockTime 
-        FROM blocked_ips 
-        ORDER BY block_time DESC
-    """)
-    results = cursor.fetchall()
-    conn.close()
-    # 转成前端需要的格式
-    ips = [{k: row[k] for k in row.keys()} for row in results]
-    return jsonify({"success": True, "data": ips})
+# ========== 阻断IP接口（拆分DELETE，解决405错误） ==========
+# 原接口：只处理GET（查列表）、POST（新增阻断）
+@app.route('/api/blocked-ips', methods=['GET', 'POST'])
+def blocked_ips_list():
+    if request.method == 'GET':
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT ip, reason, block_time as blockTime FROM blocked_ips ORDER BY block_time DESC")
+            results = cursor.fetchall()
+            conn.close()
+            data = [{k: row[k] for k in row.keys()} for row in results]
+            logger.info(f"获取阻断IP列表：{len(data)}条")
+            return jsonify({'success': True, 'data': data}), 200
+        except Exception as e:
+            logger.error(f"获取阻断IP错误：{str(e)}")
+            return jsonify({'success': False, 'error': str(e)}), 500
+    
+    if request.method == 'POST':
+        try:
+            data = request.get_json()
+            ip = data.get('ip')
+            if not ip:
+                return jsonify({'success': False, 'error': "缺少IP地址"}), 400
+            
+            conn = get_db_connection()
+            conn.execute("BEGIN TRANSACTION")
+            cursor = conn.cursor()
+            # 写入数据库
+            cursor.execute("""
+                INSERT OR IGNORE INTO blocked_ips (ip, reason, block_time)
+                VALUES (?, ?, strftime('%s', 'now'))
+            """, (ip, data.get('reason', '手动阻断')))
+            
+            # 未开GNS3，跳过路由器操作，仅日志提示
+            logger.warning(f"未开启GNS3，跳过路由器阻断操作（IP：{ip}）")
+            
+            conn.commit()
+            conn.close()
+            logger.info(f"手动阻断IP：{ip}（仅写入数据库）")
+            return jsonify({'success': True, 'msg': f"IP {ip} 阻断成功（未同步路由器）"}), 200
+        except Exception as e:
+            if 'conn' in locals():
+                conn.rollback()
+                conn.close()
+            logger.error(f"阻断IP错误：{str(e)}")
+            return jsonify({'success': False, 'error': str(e)}), 500
 
-# 手动阻断IP（同步路由器+写表）
-@app.route('/api/blocked-ips', methods=['POST'])
-def add_blocked_ip():
-    try:
-        data = request.get_json()
-        ip = data.get('ip')
-        reason = data.get('reason', '手动阻断')
-        
-        if not ip:
-            return jsonify({"success": False, "error": "缺少IP地址"}), 400
-        
-        # 调用FlowProcessor的阻断方法（同步路由器+写表）
-        processor = FlowProcessor()
-        processor.block_ip_via_router(ip)
-        
-        return jsonify({"success": True, "msg": f"IP {ip} 阻断成功（同步路由器）"}), 200
-    except Exception as e:
-        app.logger.error(f"手动阻断IP失败：{str(e)}")
-        return jsonify({"success": False, "error": str(e)}), 500
-
-# 解除阻断IP（同步路由器+删表）
+# 新增接口：处理DELETE（解除阻断，带IP路径参数），解决405
 @app.route('/api/blocked-ips/<string:ip>', methods=['DELETE'])
 def unblock_ip(ip):
     try:
-        # 调用FlowProcessor的解除方法（同步路由器+删表）
-        processor = FlowProcessor()
-        processor.unblock_ip_via_router(ip)
+        if not ip:
+            return jsonify({'success': False, 'error': "缺少IP地址"}), 400
         
-        return jsonify({"success": True, "msg": f"IP {ip} 解除成功（同步路由器）"}), 200
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        # 删除数据库记录
+        cursor.execute("DELETE FROM blocked_ips WHERE ip = ?", (ip,))
+        affected_rows = cursor.rowcount  # 检查是否有记录被删除
+        conn.commit()
+        conn.close()
+        
+        if affected_rows == 0:
+            logger.warning(f"未找到IP {ip} 的阻断记录，无需解除")
+            return jsonify({'success': True, 'msg': f"IP {ip} 无阻断记录"}), 200
+        
+        # 未开GNS3，跳过路由器操作
+        logger.warning(f"未开启GNS3，跳过路由器解除操作（IP：{ip}）")
+        logger.info(f"解除阻断IP：{ip}（已删除数据库记录）")
+        return jsonify({'success': True, 'msg': f"IP {ip} 解除成功（未同步路由器）"}), 200
     except Exception as e:
-        app.logger.error(f"解除阻断IP失败：{str(e)}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        logger.error(f"解除阻断IP错误：{str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 # 获取模型参数（给管理页面用）
@@ -826,4 +936,8 @@ if __name__ == '__main__':
     # 初始化数据库表
     init_db_table()
     # 启动Flask服务（0.0.0.0允许局域网访问，端口8000）
-    app.run(host='0.0.0.0', port=8000, debug=True)
+    app.run(
+        host=WEB_CONFIG["host"],
+        port=WEB_CONFIG["port"],
+        debug=WEB_CONFIG["debug"]
+    )

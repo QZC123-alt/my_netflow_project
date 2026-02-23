@@ -5,12 +5,18 @@ import sqlite3
 import os
 import time
 from threading import Lock
+import sys
 
 # ===================== 全局配置（可根据需求调整） =====================
+# 项目路径
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(PROJECT_ROOT)
+from config import (
+    DATABASE_PATH,BATCH_WRITE_THRESHOLD
+)
 # 数据库路径
-DB_PATH =  'netflow.db'
-# 批量写入阈值（生产环境可设为50，测试设为1）
-BATCH_WRITE_THRESHOLD = 50
+DB_PATH =  DATABASE_PATH
+
 # 流缓存+锁（线程安全）
 FLOW_CACHE = []
 CACHE_LOCK = Lock()
@@ -62,7 +68,7 @@ def createdb():
     ''')
     conn.commit()
     conn.close()
-    logging.info(f"数据库初始化完成 | 路径：{DB_PATH}")
+    logger.info(f"数据库初始化完成 | 路径：{DB_PATH}")
 
 # ===================== 模板字段解析类 =====================
 class TemplateField:
@@ -112,13 +118,13 @@ class TemplateFlowSet:
             # 解析字段数（2字节）
             field_count = struct.unpack('!H', flowset_data[offset:offset+2])[0]
             offset += 2
-            logging.info(f"解析模板 | ID：{template_id} | 字段数：{field_count}")
+            logger.info(f"解析模板 | ID：{template_id} | 字段数：{field_count}")
 
             # 解析字段列表
             fields = []
             for _ in range(field_count):
                 if offset + 4 > len(flowset_data):
-                    logging.error(f"模板{template_id}字段解析越界，终止解析")
+                    logger.error(f"模板{template_id}字段解析越界，终止解析")
                     break
                 # 字段类型（2字节）+ 字段长度（2字节）
                 f_type = struct.unpack('!H', flowset_data[offset:offset+2])[0]
@@ -130,9 +136,9 @@ class TemplateFlowSet:
             if fields:
                 template = TemplateRecord(template_id, fields)
                 templates.append(template)
-                logging.info(f"模板{template_id}解析完成 | 字段：{fields}")
+                logger.info(f"模板{template_id}解析完成 | 字段数：{len(fields)}")  # 只留字段数，剔除列表
             else:
-                logging.warning(f"模板{template_id}无有效字段，跳过")
+                logger.warning(f"模板{template_id}无有效字段，跳过")
 
         return templates
 
@@ -151,7 +157,7 @@ class DataFlowSet:
         flows = []
         flow_length = template.flow_length
         if flow_length == 0 or len(flowset_data) % flow_length != 0:
-            logging.error(f"流数据长度({len(flowset_data)})与模板{template.template_id}单条流长度({flow_length})不匹配")
+            logger.error(f"流数据长度({len(flowset_data)})与模板{template.template_id}单条流长度({flow_length})不匹配")
             return flows
 
         # 解析所有流
@@ -161,7 +167,7 @@ class DataFlowSet:
             flow = {}
             for field in template.fields:
                 if offset + field.length > len(flow_data):
-                    logging.error(f"流{i//flow_length}字段{field.type_name}解析越界，跳过该流")
+                    logger.error(f"流{i//flow_length}字段{field.type_name}解析越界，跳过该流")
                     break
                 
                 # ========== 核心修改1：字段名映射（适配原有表） ==========
@@ -205,7 +211,7 @@ class DataFlowSet:
                 flows.append(flow)
                 logging.debug(f"解析流{i//flow_length} | 适配后数据：{flow}")
 
-        logging.info(f"模板{template.template_id}解析出{len(flows)}条流（字段名已适配原有表）")
+        logger.info(f"模板{template.template_id}解析出{len(flows)}条流（字段名已适配原有表）")
         return flows
 
 # ===================== 导出报文解析（核心类） =====================
@@ -246,7 +252,7 @@ class ExportPacket:
 
         if header['version'] != 9:
             raise ValueError(f"非NetFlow v9报文（版本：{header['version']}）")
-        logging.info(f"解析报文头部 | 版本：9 | FlowSet数：{header['flowset_count']} | 源ID：{header['source_id']}")
+        logger.info(f"解析报文头部 | 版本：9 | FlowSet数：{header['flowset_count']} | 源ID：{header['source_id']}")
         return header
 
     def _parse_flowsets(self):
@@ -260,7 +266,7 @@ class ExportPacket:
 
             # 校验FlowSet长度
             if flowset_length < 4 or offset + flowset_length - 4 > len(self.raw_data):
-                logging.error(f"FlowSet{flowset_type}长度({flowset_length})非法，跳过")
+                logger.error(f"FlowSet{flowset_type}长度({flowset_length})非法，跳过")
                 offset = len(self.raw_data)  # 终止解析
                 continue
 
@@ -274,18 +280,18 @@ class ExportPacket:
                 # 更新全局模板缓存
                 for template in new_templates:
                     self.templates[template.template_id] = template
-                logging.info(f"模板FlowSet解析完成 | 新增模板数：{len(new_templates)} | 全局模板数：{len(self.templates)}")
+                logger.info(f"模板FlowSet解析完成 | 新增模板数：{len(new_templates)} | 全局模板数：{len(self.templates)}")
             
             # 2. 数据FlowSet（Type=模板ID）
             elif flowset_type in self.templates:
                 template = self.templates[flowset_type]
                 new_flows = DataFlowSet.parse(flowset_data, template)
                 self.flows.extend(new_flows)
-                logging.info(f"数据FlowSet{flowset_type}解析完成 | 新增流数：{len(new_flows)} | 总流数：{len(self.flows)}")
+                logger.info(f"数据FlowSet{flowset_type}解析完成 | 新增流数：{len(new_flows)} | 总流数：{len(self.flows)}")
             
             # 3. 未知FlowSet
             else:
-                logging.warning(f"未知FlowSet类型：{flowset_type} | 无匹配模板，跳过")
+                logger.warning(f"未知FlowSet类型：{flowset_type} | 无匹配模板，跳过")
 
 # ===================== 批量写入数据库（线程安全） =====================
 def batch_write_netflow(flow: dict):
@@ -313,9 +319,9 @@ def _write_to_db(flows: list[dict]):
         sql = f"INSERT INTO netflow ({', '.join(flows[0].keys())}) VALUES ({placeholders})"
         cursor.executemany(sql, flows)
         conn.commit()
-        logging.info(f"批量写入数据库 | 条数：{len(flows)} | 影响行数：{cursor.rowcount}")
+        logger.info(f"批量写入数据库 | 条数：{len(flows)} | 影响行数：{cursor.rowcount}")
     except sqlite3.Error as e:
-        logging.error(f"数据库写入失败：{str(e)} | 待写入数据：{flows[:1]}")
+        logger.error(f"数据库写入失败：{str(e)} | 待写入数据：{len(flows)}")
     finally:
         conn.close()
 
@@ -325,7 +331,7 @@ def flush_cache():
     with CACHE_LOCK:
         if FLOW_CACHE:
             _write_to_db(FLOW_CACHE)
-            logging.info(f"兜底写入缓存流 | 条数：{len(FLOW_CACHE)}")
+            logger.info(f"兜底写入缓存流 | 条数：{len(FLOW_CACHE)}")
             FLOW_CACHE.clear()
 
 # 程序退出时自动兜底写入

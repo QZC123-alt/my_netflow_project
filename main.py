@@ -1,57 +1,3 @@
-'''# -*- coding=utf-8 -*-
-
-
-import logging
-import sys
-import socketserver
-from collector_v9 import ExportPacket, createdb
-
-logging.getLogger().setLevel(logging.INFO)
-ch = logging.StreamHandler(sys.stdout)
-ch.setLevel(logging.DEBUG)
-formatter = logging.Formatter('%(message)s')
-ch.setFormatter(formatter)
-logging.getLogger().addHandler(ch)
-
-
-class SoftflowUDPHandler(socketserver.BaseRequestHandler):
-
-    TEMPLATES = {}
-
-    @classmethod
-    def get_server(cls, host, port):
-        logging.info("Listening on interface {}:{}".format(host, port))
-        server = socketserver.UDPServer((host, port), cls)
-        return server
-
-    def handle(self):
-        data = self.request[0]
-        host = self.client_address[0]
-        s = "Received data from {}, length {}".format(host, len(data))
-        logging.debug(s)
-        # 使用类ExportPacket处理数据,并返回实例export,这是整个处理的开始!
-        export = ExportPacket(data, self.TEMPLATES)
-        # 把实例export(类ExportPacket)中的属性templates更新到类SoftflowUDPHandler的属性templates,用于保存模板数据
-        self.TEMPLATES.update(export.templates)
-        s = "Processed ExportPacket with {} flows.".format(export.header.count)
-        logging.debug(s)
-
-
-if __name__ == "__main__":
-    createdb()
-    server = SoftflowUDPHandler.get_server('0.0.0.0', 9995)
-
-    logging.getLogger().setLevel(logging.DEBUG)
-
-    try:
-        logging.debug("Starting the NetFlow listener")
-        server.serve_forever(poll_interval=0.5)
-    except (IOError, SystemExit):
-        raise
-    except KeyboardInterrupt:
-        raise
-'''
-
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
@@ -61,10 +7,11 @@ import sys
 import os
 import socketserver
 import logging
+import webbrowser  # 新增：用于自动打开浏览器
 
 # 添加项目路径
 sys.path.append(os.path.dirname(__file__))
-
+from config import NETFLOW_CONFIG, MONITOR_CONFIG, WEB_CONFIG
 from utils.log_utils import get_module_logger
 logger = get_module_logger("main")  # 日志文件
 
@@ -83,12 +30,6 @@ def start_packet_capture():
         import os
         import threading
 
-        # 2. 日志配置（与collector_v9统一）
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - [CollectorMain] - %(levelname)s - %(message)s',
-            handlers=[logging.FileHandler('collector_main.log'), logging.StreamHandler()]
-        )
 
         # 3. 初始化数据库
         logging.info("[收集服务] 初始化NetFlow数据库...")
@@ -135,26 +76,26 @@ def start_packet_capture():
 
                 # 捕获所有异常，避免单个包解析失败导致线程崩溃
                 except Exception as e:
-                    logging.error(f"[处理失败] 客户端{client_addr}：{str(e)}", exc_info=True)
+                    logger.error(f"[处理失败] 客户端{client_addr}：{str(e)}", exc_info=True)
                     print(f"❌ 处理{client_addr[0]}数据失败：{str(e)}")
 
         # 7. 启动UDP服务器
-        HOST = '0.0.0.0'  # 监听所有网卡（支持本机/局域网/公网）
-        PORT = 9995
-        logging.info(f"[收集服务] 启动多线程UDP服务器 | {HOST}:{PORT}")
+        HOST = NETFLOW_CONFIG["host"]
+        PORT = NETFLOW_CONFIG["port"]  # 真实端口，不再硬编码
+        logger.info(f"[收集服务] 启动多线程UDP服务器 | {HOST}:{PORT}")
         
         # 启动服务器（阻塞式，需在子线程中运行）
         server = ThreadedUDPServer((HOST, PORT), NetFlowUDPHandler)
         server.serve_forever()
 
     except ImportError as e:
-        logging.error(f"[收集服务] 依赖导入失败：{str(e)} | 请检查collector_v9.py路径是否正确")
+        logger.error(f"[收集服务] 依赖导入失败：{str(e)} | 请检查collector_v9.py路径是否正确")
         print(f"❌ 依赖导入失败：{str(e)}")
     except OSError as e:
-        logging.error(f"[收集服务] 端口占用失败：{str(e)} | 请检查{PORT}端口是否被占用（可执行 netstat -ano | findstr :{PORT}）")
+        logger.error(f"[收集服务] 端口占用失败：{str(e)} | 请检查{PORT}端口是否被占用（可执行 netstat -ano | findstr :{PORT}）")
         print(f"❌ 端口占用失败：{str(e)}")
     except Exception as e:
-        logging.error(f"[收集服务] 启动失败：{str(e)}", exc_info=True)
+        logger.error(f"[收集服务] 启动失败：{str(e)}", exc_info=True)
         print(f"❌ 收集服务启动失败：{str(e)}")
 
 def start_anomaly_detection():
@@ -196,23 +137,36 @@ def monitor_system():
             conn.close()
             
             # 更新显示（覆盖原有输出）
-            print(f"\r📊 流记录总数：{flowcount} | ⚠️ 异常记录：{anocount}")
+            logger.info(f"\r📊 流记录总数：{flowcount} | ⚠️ 异常记录：{anocount}")
         except Exception as e:
-            print(f"\r📊 流记录总数：查询失败 | 错误：{str(e)}", end="")
-        time.sleep(30)  # 每30秒刷新（与监控显示的“每30秒更新统计”对应）
+            logger.info(f"\r📊 流记录总数：查询失败 | 错误：{str(e)}", end="")
+        time.sleep(MONITOR_CONFIG["interval"])  # 每30秒刷新（与监控显示的“每30秒更新统计”对应）
 
 def start_web_interface():
     """启动Web界面"""
     print("启动Web界面...")
     try:
-        # 方法1：直接启动Flask服务器
-        from api.flask_server import app
-        from api.flask_server import init_db_table
+        from api.flask_server import app, init_db_table
         init_db_table()
-        print("Web服务器启动中...")
-        # 启动Flask服务器，禁用reloader避免在子线程中出现问题
-        app.run(host='0.0.0.0', port=8000, debug=True, use_reloader=False)
         
+        # 新增：构造Web访问地址（从配置中读取host和port，适配你的配置）
+        web_url = f"http://localhost:{WEB_CONFIG['port']}" 
+        # 新增：延迟1秒（确保Web服务先启动，避免浏览器先弹出来但页面无法访问）
+        def open_browser_auto():
+            time.sleep(1)
+            webbrowser.open(web_url)  # 调用系统默认浏览器打开地址
+        
+        # 新增：启动子线程执行自动打开浏览器（不阻塞Web服务启动）
+        threading.Thread(target=open_browser_auto, daemon=True).start()
+        
+        # 原有打印提示保留，方便查看
+        print(f"Web服务器启动成功！已自动打开浏览器，访问地址：{web_url}")
+        app.run(
+            host=WEB_CONFIG["host"],
+            port=WEB_CONFIG["port"],
+            debug=WEB_CONFIG["debug"],
+            use_reloader=False
+        )
     except Exception as e:
         print(f"启动Web界面失败: {e}")
 
@@ -221,6 +175,34 @@ def main():
     print("启动网络流量分析系统...")
     print("=" * 50)
     
+
+        # 1. 初始化数据库表
+    try:
+        from api.flask_server import init_db_table
+        print("初始化数据库表...")
+        init_db_table()
+        print("数据库表初始化完成！")
+    except Exception as e:
+        print(f"数据库表初始化失败: {e}")
+        return
+    
+    # 2. 新增：写入系统启动时间到model_config表（修复运行时长显示）
+    try:
+        from api.flask_server import get_db_connection
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        start_time_ts = int(time.time())  # 当前时间戳（秒）
+        cursor.execute("""
+            INSERT OR REPLACE INTO model_config (param_name, param_value, description)
+            VALUES ('start_time', ?, '系统启动时间戳（秒）')
+        """, (start_time_ts,))
+        conn.commit()
+        conn.close()
+        print(f"系统启动时间已写入model_config表（时间戳：{start_time_ts}）")
+    except Exception as e:
+        print(f"写入系统启动时间失败：{e}")
+
+
     # 创建线程
     threads = []
     # 数据包捕获线程

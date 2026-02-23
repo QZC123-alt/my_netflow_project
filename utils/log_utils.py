@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 全局日志工具：仅保留【模块独立日志+全局错误日志+控制台输出】，无总日志
