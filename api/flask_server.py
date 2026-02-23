@@ -70,20 +70,23 @@ def serve_frontend(filename):
         logger.info(f"返回静态文件：{filename}")
     return response
 
+
+# 保留原有路由（必须！否则iframe加载子页面会404）
+@app.route('/index.html')
+def index_page():
+    return send_from_directory(FRONTEND_DIR, 'index.html')
+
+@app.route('/control.html')
+def control_page():
+    return send_from_directory(FRONTEND_DIR, 'control.html')
+
+@app.route('/anomaly.html')
+def anomaly_page():
+    return send_from_directory(FRONTEND_DIR, 'anomaly.html')
 # 访问根路径时返回index.html
 @app.route('/')
-def index():
-    index_path = os.path.join(FRONTEND_DIR, 'index.html')
-    if not os.path.exists(index_path):
-        error_msg = f"index.html未找到（路径：{index_path}）"
-        logger.error(error_msg)
-        return error_msg, 404
-    # 强制设置Content-Type为text/html（解决类型报错）
-    response = make_response(send_from_directory(FRONTEND_DIR, 'index.html'))
-    response.headers['Content-Type'] = 'text/html; charset=utf-8'
-    logger.info(f"成功返回index.html（路径：{index_path}）")
-    return response  
-
+def main_dashboard():
+    return send_from_directory(FRONTEND_DIR, 'main_dashboard.html')
 
 # -------------------------- 数据库工具函数 --------------------------
 def get_db_connection():

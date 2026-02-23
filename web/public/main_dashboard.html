@@ -1,0 +1,181 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NetFlow网络入侵检测与响应系统</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: "Microsoft YaHei", sans-serif;
+        }
+
+        body {
+            background-color: #f5f7fa;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        /* 顶部导航：标题放大50%，大气 */
+        .top-nav {
+            background: linear-gradient(90deg, #6366f1 0%, #8b5cf6 100%);
+            color: #fff;
+            padding: 20px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            height: 80px;
+        }
+
+            .top-nav h2 {
+                font-size: 36px; /* 比原来大50% */
+                font-weight: 600;
+                margin: 0;
+                letter-spacing: 1px;
+            }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 16px;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: #10b981;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+
+            100% {
+                opacity: 1;
+            }
+        }
+        /* 主容器 */
+        .main-container {
+            display: flex;
+            flex: 1;
+            height: calc(100vh - 80px);
+        }
+        /* 左侧标签栏 */
+        .sidebar {
+            width: 240px;
+            background: linear-gradient(180deg, #6366f1 0%, #8b5cf6 100%);
+            padding: 30px 0;
+        }
+
+        .tab-btn {
+            width: 100%;
+            padding: 18px 25px;
+            border: none;
+            background: transparent;
+            color: #fff;
+            text-align: left;
+            font-size: 18px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            transition: all 0.2s ease;
+        }
+
+            .tab-btn:hover, .tab-btn.active {
+                background-color: rgba(255, 255, 255, 0.15);
+                border-left: 5px solid #fff;
+            }
+        /* 右侧内容区：关键修改 */
+        .iframe-wrap {
+            flex: 1;
+            overflow: hidden; /* 裁剪掉超出的标题栏 */
+            position: relative;
+        }
+
+        #main-iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            outline: none;
+            /* 1. 将整个 iframe 内容向上移动 40px，让标题栏移出可视区域 */
+            transform: translateY(-125px);
+            /* 2. 为了让内容不被裁剪，我们增加 iframe 的高度 */
+            height: calc(100% + 125px);
+        }
+        /* 适配小屏幕 */
+        @media (max-width: 768px) {
+            .sidebar {
+                width: 180px;
+            }
+
+            .top-nav h2 {
+                font-size: 28px;
+            }
+
+            .tab-btn {
+                font-size: 16px;
+                padding: 16px 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- 顶部导航 -->
+    <div class="top-nav">
+        <h2>NetFlow网络入侵检测与响应系统</h2>
+        <div class="status">
+            <span class="status-dot"></span>
+            <span>系统运行中</span>
+        </div>
+    </div>
+
+    <!-- 主容器 -->
+    <div class="main-container">
+        <!-- 左侧标签栏 -->
+        <div class="sidebar">
+            <button class="tab-btn active" data-src="index.html">📊 仪表盘</button>
+            <button class="tab-btn" data-src="anomaly.html">⚠️ 异常检测</button>
+            <button class="tab-btn" data-src="control.html">⚙️ 系统控制</button>
+        </div>
+        <!-- 右侧内容区 -->
+        <div class="iframe-wrap">
+            <iframe id="main-iframe" src="index.html"></iframe>
+        </div>
+    </div>
+
+    <script>
+        const iframe = document.getElementById('main-iframe');
+        const tabBtns = document.querySelectorAll('.tab-btn');
+
+        tabBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                tabBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                iframe.src = btn.dataset.src;
+                localStorage.setItem('activeNetFlowTab', btn.dataset.src);
+            });
+        });
+
+        window.onload = () => {
+            const savedTab = localStorage.getItem('activeNetFlowTab');
+            if (savedTab) {
+                tabBtns.forEach(btn => {
+                    if (btn.dataset.src === savedTab) btn.click();
+                });
+            }
+        };
+    </script>
+</body>
+</html>
