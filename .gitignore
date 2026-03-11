@@ -63,3 +63,6 @@ nfdump.*
 # Wireshark 抓包文件
 *.pcap
 *.pcapng
+/web/public/control_old.html
+/config.py.old
+/ico.py
